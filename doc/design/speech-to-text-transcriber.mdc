@@ -1,0 +1,243 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# 音声ファイル文字起こしCLI 設計文書
+
+## 1. プロジェクト概要
+### 1.1 目的・背景
+standfmのRSSフィードから音声ファイルを自動取得し、whisperによる文字起こしを行うCLIツールの開発。ほぼ毎日アップロードされる音声コンテンツの効率的なテキスト化を実現する。
+
+### 1.2 成功基準
+- RSSフィード経由での音声ファイル自動取得
+- 指定期間（当日・前日・先週・最新1件）でのフィルタリング機能
+- 大容量音声ファイルの適切な分割処理
+- 高精度な文字起こし（whisper使用）
+- 複数出力形式対応（txt, markdown, json）
+- 重複処理の適切な回避
+
+### 1.3 制約条件
+- **技術制約**: whisperファイルサイズ上限25MB、Python環境
+- **ビジネス制約**: standfmのRSSフィード依存、手動実行ベース
+- **期間制約**: 単一機能の小規模CLI
+
+## 2. 要件定義
+### 2.1 機能要件
+#### 2.1.1 主要機能
+- **RSSフィード解析**: standfmのRSSフィードから音声エピソード情報を取得
+  - 入力: RSS URL（環境変数・CLIオプション）
+  - 処理: feedparserによるXML解析、日付フィルタリング
+  - 出力: Episode情報リスト
+
+- **音声ファイルダウンロード**: 指定エピソードの音声ファイル取得
+  - 入力: 音声URL、保存先ディレクトリ
+  - 処理: HTTP GETリクエスト、ファイル保存、重複チェック
+  - 出力: ローカル音声ファイル
+
+- **音声分割処理**: 大容量ファイルのチャンク分割
+  - 入力: 音声ファイル、分割サイズ（25MB）、オーバーラップ（15秒）
+  - 処理: pydubによるファイルサイズベース分割
+  - 出力: 分割音声ファイル群
+
+- **文字起こし処理**: whisperによるテキスト変換
+  - 入力: 音声ファイル（または分割ファイル群）
+  - 処理: openai-whisperによる音声認識、テキスト結合
+  - 出力: 文字起こしテキスト
+
+#### 2.1.2 補助機能
+- **設定管理**: .env > 環境変数 > CLIオプションの優先順位制御
+- **ファイル名生成**: タイトル特殊文字のアンダースコア変換
+- **エラーハンドリング**: 各処理段階での適切なエラーコード返却
+
+### 2.2 非機能要件
+- **性能要件**: 25MB以下の音声は5分以内で処理完了
+- **可用性要件**: ネットワークエラー時の適切な終了
+- **保守性要件**: モジュール分離による機能拡張への対応
+
+## 3. アーキテクチャ設計
+### 3.1 システム構成
+```
+[CLI Entry Point]
+        ↓
+[Config Manager] ← .env/.環境変数/CLIオプション
+        ↓
+[RSS Parser] → [Episode Filter]
+        ↓
+[Audio Downloader] 
+        ↓
+[Audio Processor] → [Chunker] → [Whisper Transcriber]
+        ↓
+[Text Combiner] → [File Writer]
+```
+
+### 3.2 技術スタック
+- **CLI Framework**: click
+- **設定管理**: python-dotenv
+- **RSS解析**: feedparser
+- **HTTP通信**: requests
+- **音声処理**: pydub
+- **文字起こし**: openai-whisper
+
+### 3.3 データフロー
+RSS URL → RSS Feed → Episode List → Audio URLs → Downloaded Files → Audio Chunks → Transcript Chunks → Combined Transcript → Output File
+
+## 4. 詳細設計
+### 4.1 コンポーネント設計
+#### 4.1.1 Config Manager
+- **責務**: 設定値の統合管理、バリデーション、デフォルト値提供
+- **インターフェース**: get_config() -> Config、validate_config(config: Config) -> bool
+- **実装方針**: dataclass使用、設定優先順位の明確化
+
+#### 4.1.2 RSS Parser
+- **責務**: RSSフィード取得・解析、日付フィルタリング
+- **インターフェース**: fetch_episodes(url: str) -> List[Episode]、filter_by_date_range(episodes: List[Episode], date_range: str) -> List[Episode]
+- **実装方針**: feedparser使用、Episode dataclass定義
+
+#### 4.1.3 Audio Downloader
+- **責務**: 音声ファイルダウンロード、重複チェック
+- **インターフェース**: download(url: str, output_path: str) -> str、file_exists(output_path: str) -> bool
+- **実装方針**: requests使用、進捗表示機能
+
+#### 4.1.4 Audio Processor
+- **責務**: 音声分割、whisper処理、テキスト結合
+- **インターフェース**: split_audio(file_path: str, chunk_size_mb: int, overlap_seconds: int) -> List[str]、transcribe_chunk(chunk_path: str, model: str) -> str、combine_transcripts(transcripts: List[str]) -> str
+- **実装方針**: pydub + openai-whisper使用、オーバーラップ処理
+
+### 4.2 データ構造設計
+```python
+@dataclass
+class Config:
+    rss_url: str
+    download_dir: str = "./downloads"
+    output_dir: str = "./transcripts"
+    date_range: str = "today"
+    output_format: str = "txt"
+    whisper_model: str = "base"
+    max_episodes: int = 10
+    chunk_size_mb: int = 25
+    overlap_seconds: int = 15
+
+@dataclass
+class Episode:
+    title: str
+    audio_url: str
+    published_date: datetime
+    duration: str
+```
+
+### 4.3 環境変数設計
+```
+STT_RSS_URL          - RSSフィードのURL (必須)
+STT_DOWNLOAD_DIR     - 音声保存先 (default: ./downloads)
+STT_OUTPUT_DIR       - 結果保存先 (default: ./transcripts)
+STT_DATE_RANGE       - 取得期間 (default: today)
+STT_OUTPUT_FORMAT    - 出力形式 (default: txt)
+STT_WHISPER_MODEL    - whisperモデル (default: base)
+STT_MAX_EPISODES     - 最大処理数 (default: 10)
+STT_CHUNK_SIZE_MB    - 分割サイズ（MB） (default: 25)
+STT_OVERLAP_SECONDS  - オーバーラップ時間（秒） (default: 15)
+```
+
+## 5. 実装計画
+### 5.1 Phase分割
+- **Phase 1 (基盤実装)**: プロジェクト初期化、Config Manager、基本CLI
+- **Phase 2 (データ取得)**: RSS Parser、Audio Downloader
+- **Phase 3 (音声処理)**: Audio Processor、Whisper統合、出力機能
+- **Phase 4 (統合・テスト)**: エンドツーエンド統合、テスト・デバッグ
+
+### 5.2 依存関係
+```mermaid
+graph TD
+    Phase1[基盤実装] --> Phase2[データ取得]
+    Phase1 --> Phase3[音声処理]
+    Phase2 --> Phase4[統合・テスト]
+    Phase3 --> Phase4
+```
+
+### 5.3 工数見積もり
+| Phase | Group | タスク数 | 工数(時間) | 並列度 |
+|-------|-------|----------|------------|---------|
+| 1     | 基盤  | 3        | 3          | 1       |
+| 2     | 取得  | 2        | 3          | 1       |
+| 3     | 処理  | 3        | 5          | 1       |
+| 4     | 統合  | 2        | 2          | 1       |
+
+## 6. リスク分析
+### 6.1 技術リスク
+- **whisper処理時間**: 大容量ファイルの処理時間増大 → 分割処理で対応
+- **RSS仕様変更**: standfm RSS仕様変更による取得失敗 → エラーハンドリングで対応
+- **音声形式対応**: m4a以外の形式への対応 → pydub変換機能で対応
+
+### 6.2 運用リスク
+- **ネットワーク障害**: RSS・音声取得の失敗 → 適切なエラーコード返却
+
+## 7. テスト戦略
+### 7.1 テスト方針
+- **単体テスト**: 各コンポーネントの独立テスト
+- **統合テスト**: RSS〜ファイル出力までの一連処理テスト
+- **E2Eテスト**: 実際のRSSフィードでの動作確認
+
+### 7.2 テストケース設計指針
+- 正常系：各date_range設定での動作確認
+- 異常系：ネットワークエラー、ファイルアクセスエラー、音声処理エラー
+- 境界値：最大ファイルサイズ、オーバーラップ境界
+
+## 8. 運用・保守計画
+### 8.1 監視・ログ
+- INFO: 処理進捗（開始、完了、スキップ）
+- ERROR: エラー詳細（HTTP、ファイルIO、音声処理）
+- DEBUG: 詳細なデバッグ情報（オプション）
+
+### 8.2 保守性考慮
+- モジュール分離による機能拡張対応
+- 設定項目の柔軟な追加
+- 新しい音声形式・出力形式への対応
+
+## 9. エラーハンドリング仕様
+### 9.1 エラーコード定義
+- exit code 1: RSS取得失敗（HTTPエラー、ネットワークエラー）
+- exit code 2: 音声ダウンロード失敗（ファイルアクセスエラー）
+- exit code 3: Whisper処理失敗（音声解析エラー）
+- exit code 4: ファイル書き込み失敗（権限エラー）
+
+### 9.2 重複処理制御
+- 出力先に同名ファイル存在 → 処理スキップして正常終了（exit code 0）
+- ログ出力：`INFO: Skip - File already exists: {filename}`
+
+## 10. ファイル構造
+```
+speech-to-text/
+├── src/
+│   ├── transcriber/
+│   │   ├── __init__.py
+│   │   ├── cli.py          # CLIエントリーポイント
+│   │   ├── config.py       # 設定管理
+│   │   ├── rss_parser.py   # RSS処理
+│   │   ├── downloader.py   # 音声ダウンロード
+│   │   └── transcriber.py  # 文字起こし処理
+│   └── main.py
+├── .env.example
+├── requirements.txt
+└── README.md
+```
+
+## 11. ファイル命名規則
+### 11.1 ダウンロードファイル名
+- 音声ファイル：`{title_sanitized}_{date}.m4a`
+- 分割ファイル：`{title_sanitized}_{date}_chunk_{n}.m4a`
+
+### 11.2 出力ファイル名
+- テキストファイル：`{title_sanitized}_{date}.{format}`
+- 特殊文字処理：`/, ?, :, *, ", <, >, |` → アンダースコア置換
+
+### 11.3 分割ロジック詳細
+```
+元音声: [0分------25MB------50MB------60MB終了]
+
+分割結果:
+Chunk 1: [0分---------25MB+15秒]
+Chunk 2: [25MB-15秒---50MB+15秒]  
+Chunk 3: [50MB-15秒---60MB終了]
+
+各チャンクが15秒のオーバーラップを持つことで文脈の連続性を保持
