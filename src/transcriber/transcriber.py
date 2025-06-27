@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import ssl
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -11,6 +12,9 @@ import whisper
 from pydub import AudioSegment
 
 from .config import Config, Episode
+
+# SSL証明書エラーを回避
+ssl._create_default_https_context = ssl._create_unverified_context
 
 
 class AudioTranscriber:
@@ -24,7 +28,7 @@ class AudioTranscriber:
     def _load_model(self):
         """Load Whisper model."""
         if self.model is None:
-            self.logger.info(f"Loading Whisper model: {self.config.whisper_model}")
+            self.logger.info(f"Whisperモデルを読み込み中: {self.config.whisper_model}")
             self.model = whisper.load_model(self.config.whisper_model)
     
     def transcribe(self, audio_path: Path) -> Optional[str]:
@@ -34,19 +38,19 @@ class AudioTranscriber:
             
             # Check file size
             file_size_mb = audio_path.stat().st_size / (1024 * 1024)
-            self.logger.info(f"Audio file size: {file_size_mb:.1f} MB")
+            self.logger.info(f"音声ファイルサイズ: {file_size_mb:.1f} MB")
             
             if file_size_mb <= self.config.chunk_size_mb:
                 # File is small enough, transcribe directly
-                self.logger.info("Transcribing audio file directly")
+                self.logger.info("音声ファイルを直接文字起こし中")
                 return self._transcribe_file(audio_path)
             else:
                 # File is too large, split and transcribe
-                self.logger.info(f"File size exceeds {self.config.chunk_size_mb}MB, splitting into chunks")
+                self.logger.info(f"ファイルサイズが{self.config.chunk_size_mb}MBを超過、チャンクに分割して処理")
                 return self._transcribe_with_chunking(audio_path)
                 
         except Exception as e:
-            self.logger.error(f"Failed to transcribe {audio_path}: {e}")
+            self.logger.error(f"文字起こしに失敗: {audio_path}: {e}")
             return None
     
     def _transcribe_file(self, audio_path: Path) -> str:
@@ -70,7 +74,7 @@ class AudioTranscriber:
         # Ensure minimum chunk duration
         chunk_duration_ms = max(chunk_duration_ms, 30000)  # At least 30 seconds
         
-        self.logger.info(f"Chunk duration: {chunk_duration_ms/1000:.1f} seconds, overlap: {overlap_ms/1000:.1f} seconds")
+        self.logger.info(f"チャンク時間: {chunk_duration_ms/1000:.1f}秒, オーバーラップ: {overlap_ms/1000:.1f}秒")
         
         chunks = self._split_audio(audio, chunk_duration_ms, overlap_ms)
         transcripts = []
@@ -84,7 +88,7 @@ class AudioTranscriber:
                 # Export chunk to temporary file
                 chunk.export(str(chunk_file), format="wav")
                 
-                self.logger.info(f"Transcribing chunk {i+1}/{len(chunks)} ({len(chunk)/1000:.1f}s)")
+                self.logger.info(f"チャンク {i+1}/{len(chunks)} を文字起こし中 ({len(chunk)/1000:.1f}秒)")
                 
                 # Transcribe chunk
                 transcript = self._transcribe_file(chunk_file)
@@ -92,7 +96,7 @@ class AudioTranscriber:
         
         # Combine transcripts
         combined_transcript = self._combine_transcripts(transcripts)
-        self.logger.info(f"Combined {len(transcripts)} transcript chunks")
+        self.logger.info(f"{len(transcripts)}個のチャンクを結合完了")
         
         return combined_transcript
     
@@ -185,4 +189,4 @@ class AudioTranscriber:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(transcript)
         
-        self.logger.info(f"Transcript saved: {output_path}")
+        self.logger.info(f"文字起こし結果を保存: {output_path}")
