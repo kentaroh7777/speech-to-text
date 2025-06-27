@@ -5,6 +5,7 @@ import logging
 import os
 import ssl
 import tempfile
+import warnings
 from pathlib import Path
 from typing import List, Optional
 
@@ -15,6 +16,9 @@ from .config import Config, Episode
 
 # SSL証明書エラーを回避
 ssl._create_default_https_context = ssl._create_unverified_context
+
+# Whisper FP16警告を無効化
+warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
 
 
 class AudioTranscriber:
@@ -190,3 +194,17 @@ class AudioTranscriber:
                 f.write(transcript)
         
         self.logger.info(f"文字起こし結果を保存: {output_path}")
+    
+    def delete_audio_file(self, audio_path: Path) -> bool:
+        """Delete audio file and return success status."""
+        try:
+            if audio_path.exists():
+                audio_path.unlink()
+                self.logger.info(f"音声ファイルを削除: {audio_path}")
+                return True
+            else:
+                self.logger.warning(f"削除対象の音声ファイルが見つかりません: {audio_path}")
+                return False
+        except Exception as e:
+            self.logger.error(f"音声ファイル削除に失敗: {audio_path}: {e}")
+            return False
