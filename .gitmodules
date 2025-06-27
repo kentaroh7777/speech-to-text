@@ -1,0 +1,3 @@
+[submodule ".cursor/rules-common"]
+	path = .cursor/rules-common
+	url = https://github.com/kentaroh7777/rules-common
