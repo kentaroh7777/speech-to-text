@@ -2,7 +2,7 @@
 
 import logging
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from urllib.parse import urlparse
 
@@ -109,7 +109,10 @@ class RSSParser:
         for field in date_fields:
             if hasattr(entry, field) and getattr(entry, field):
                 time_struct = getattr(entry, field)
-                return datetime(*time_struct[:6])
+                # Convert GMT to JST (+9 hours)
+                utc_time = datetime(*time_struct[:6], tzinfo=timezone.utc)
+                jst_time = utc_time.astimezone(timezone(timedelta(hours=9)))
+                return jst_time.replace(tzinfo=None)  # Remove timezone info for comparison
         
         # Fallback to current time
         self.logger.warning(f"No date found for entry: {entry.get('title', 'Unknown')}")
