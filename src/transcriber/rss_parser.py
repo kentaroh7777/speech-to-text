@@ -2,7 +2,7 @@
 
 import logging
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List
 from urllib.parse import urlparse
 
@@ -20,20 +20,13 @@ class RSSParser:
     def fetch_episodes(self, rss_url: str) -> List[Episode]:
         """Fetch episodes from RSS feed."""
         try:
-            self.logger.info(f"RSSフィード取得中: {rss_url}")
-            
-            # Fetch RSS feed with proper User-Agent
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get(rss_url, headers=headers)
-            response.raise_for_status()
+            self.logger.info(f"Fetching RSS feed from: {rss_url}")
             
             # Parse RSS feed
-            feed = feedparser.parse(response.content)
+            feed = feedparser.parse(rss_url)
             
             if not feed.entries:
-                self.logger.warning("RSSフィードにエピソードが見つかりません")
+                self.logger.warning("No episodes found in RSS feed")
                 return []
             
             episodes = []
@@ -43,14 +36,14 @@ class RSSParser:
                     if episode:
                         episodes.append(episode)
                 except Exception as e:
-                    self.logger.warning(f"エントリの解析に失敗: {e}")
+                    self.logger.warning(f"Failed to parse entry: {e}")
                     continue
             
-            self.logger.info(f"RSSフィードから{len(episodes)}件のエピソードを解析完了")
+            self.logger.info(f"Parsed {len(episodes)} episodes from RSS feed")
             return episodes
             
         except Exception as e:
-            self.logger.error(f"RSSフィード取得に失敗: {e}")
+            self.logger.error(f"Failed to fetch RSS feed: {e}")
             raise
     
     def _parse_entry(self, entry) -> Episode:
@@ -82,7 +75,7 @@ class RSSParser:
                 audio_url = link
         
         if not audio_url:
-            raise ValueError(f"エピソードの音声URLが見つかりません: {title}")
+            raise ValueError(f"No audio URL found for episode: {title}")
         
         # Parse published date
         published_date = self._parse_date(entry)
@@ -109,13 +102,10 @@ class RSSParser:
         for field in date_fields:
             if hasattr(entry, field) and getattr(entry, field):
                 time_struct = getattr(entry, field)
-                # Convert GMT to JST (+9 hours)
-                utc_time = datetime(*time_struct[:6], tzinfo=timezone.utc)
-                jst_time = utc_time.astimezone(timezone(timedelta(hours=9)))
-                return jst_time.replace(tzinfo=None)  # Remove timezone info for comparison
+                return datetime(*time_struct[:6])
         
         # Fallback to current time
-        self.logger.warning(f"エントリの日付が見つかりません: {entry.get('title', '不明')}")
+        self.logger.warning(f"No date found for entry: {entry.get('title', 'Unknown')}")
         return datetime.now()
     
     def filter_by_date_range(self, episodes: List[Episode], date_range: str) -> List[Episode]:
@@ -140,7 +130,7 @@ class RSSParser:
             return [sorted_episodes[0]]
         else:
             # Unknown date range, return all
-            self.logger.warning(f"不明な日付範囲: {date_range}, 全エピソードを返します")
+            self.logger.warning(f"Unknown date range: {date_range}, returning all episodes")
             return episodes
         
         filtered = [
@@ -148,5 +138,5 @@ class RSSParser:
             if start_date <= ep.published_date < end_date
         ]
         
-        self.logger.info(f"日付範囲({date_range})でフィルタリング結果: {len(filtered)}件")
+        self.logger.info(f"Filtered to {len(filtered)} episodes for date range: {date_range}")
         return filtered

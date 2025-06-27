@@ -27,10 +27,10 @@ class AudioDownloader:
             
             # Check if file already exists
             if file_path.exists():
-                self.logger.info(f"スキップ - ファイルが既に存在: {file_path.name}")
+                self.logger.info(f"Skip - File already exists: {file_path.name}")
                 return file_path
             
-            self.logger.info(f"音声ダウンロード中: {title}")
+            self.logger.info(f"Downloading audio: {title}")
             
             # Download file
             response = requests.get(audio_url, stream=True, timeout=30)
@@ -43,12 +43,12 @@ class AudioDownloader:
                         f.write(chunk)
             
             file_size_mb = file_path.stat().st_size / (1024 * 1024)
-            self.logger.info(f"ダウンロード完了: {file_path.name} ({file_size_mb:.1f} MB)")
+            self.logger.info(f"Downloaded: {file_path.name} ({file_size_mb:.1f} MB)")
             
             return file_path
             
         except Exception as e:
-            self.logger.error(f"音声ダウンロードに失敗 {audio_url}: {e}")
+            self.logger.error(f"Failed to download audio from {audio_url}: {e}")
             return None
     
     def _generate_file_path(self, title: str, published_date: datetime, audio_url: str) -> Path:

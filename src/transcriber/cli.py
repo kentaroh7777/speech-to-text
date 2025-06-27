@@ -64,7 +64,7 @@ def main(
             delete_audio=delete_audio
         )
         
-        logger.info(f"文字起こし処理を開始 設定: {config}")
+        logger.info(f"Starting transcription with config: {config}")
         
         # Initialize components
         rss_parser = RSSParser()
@@ -72,7 +72,7 @@ def main(
         transcriber = AudioTranscriber(config)
         
         # Fetch episodes from RSS
-        logger.info(f"RSSフィードからエピソード取得中: {config.rss_url}")
+        logger.info(f"Fetching episodes from RSS: {config.rss_url}")
         episodes = rss_parser.fetch_episodes(config.rss_url)
         
         # Filter episodes by date range
@@ -82,44 +82,48 @@ def main(
         if config.max_episodes:
             filtered_episodes = filtered_episodes[:config.max_episodes]
         
-        logger.info(f"処理対象エピソード数: {len(filtered_episodes)}件")
+        logger.info(f"Found {len(filtered_episodes)} episodes to process")
         
         # Process each episode
         for episode in filtered_episodes:
-            logger.info(f"エピソード処理中: {episode.title}")
+            logger.info(f"Processing episode: {episode.title}")
             
             # Check if transcript already exists
             output_path = transcriber.get_output_path(episode)
             if output_path.exists():
-                logger.info(f"スキップ - ファイルが既に存在: {output_path}")
+                logger.info(f"Skip - File already exists: {output_path}")
                 continue
             
             # Download audio file
             audio_path = downloader.download(episode.audio_url, episode.title, episode.published_date)
             if not audio_path:
-                logger.error(f"音声ダウンロードに失敗: {episode.title}")
+                logger.error(f"Failed to download audio for: {episode.title}")
                 continue
             
             # Transcribe audio
             transcript = transcriber.transcribe(audio_path)
             if not transcript:
-                logger.error(f"音声の文字起こしに失敗: {episode.title}")
+                logger.error(f"Failed to transcribe audio for: {episode.title}")
                 continue
             
             # Save transcript
             transcriber.save_transcript(transcript, episode)
-            logger.info(f"文字起こし結果を保存: {output_path}")
+            logger.info(f"Transcript saved: {output_path}")
             
             # Delete audio file if requested
             if config.delete_audio:
-                transcriber.delete_audio_file(audio_path)
+                try:
+                    audio_path.unlink()
+                    logger.info(f"Deleted audio file: {audio_path.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete audio file {audio_path.name}: {e}")
         
-        logger.info("全ての文字起こし処理が完了しました")
+        logger.info("Transcription completed successfully")
         
     except Exception as e:
-        logger.error(f"エラーが発生しました: {e}")
+        logger.error(f"Error: {e}")
         if debug:
-            logger.exception("詳細なエラー情報:")
+            logger.exception("Full traceback:")
         sys.exit(1)
 
 
