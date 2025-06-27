@@ -34,6 +34,7 @@ def setup_logging(debug: bool = False) -> None:
               help='Output format')
 @click.option('--whisper-model', help='Whisper model to use')
 @click.option('--max-episodes', type=int, help='Maximum number of episodes to process')
+@click.option('--delete-audio', is_flag=True, help='Delete audio files after successful transcription')
 @click.option('--debug', is_flag=True, help='Enable debug logging')
 def main(
     rss_url: Optional[str],
@@ -43,6 +44,7 @@ def main(
     output_format: Optional[str],
     whisper_model: Optional[str],
     max_episodes: Optional[int],
+    delete_audio: bool,
     debug: bool
 ) -> None:
     """Speech-to-text transcriber CLI."""
@@ -58,7 +60,8 @@ def main(
             date_range=date_range,
             output_format=output_format,
             whisper_model=whisper_model,
-            max_episodes=max_episodes
+            max_episodes=max_episodes,
+            delete_audio=delete_audio
         )
         
         logger.info(f"文字起こし処理を開始 設定: {config}")
@@ -106,6 +109,10 @@ def main(
             # Save transcript
             transcriber.save_transcript(transcript, episode)
             logger.info(f"文字起こし結果を保存: {output_path}")
+            
+            # Delete audio file if requested
+            if config.delete_audio:
+                transcriber.delete_audio_file(audio_path)
         
         logger.info("全ての文字起こし処理が完了しました")
         

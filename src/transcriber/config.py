@@ -25,6 +25,7 @@ class Config:
     max_episodes: int = 10
     chunk_size_mb: int = 25
     overlap_seconds: int = 15
+    delete_audio: bool = False
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -63,7 +64,8 @@ def get_config(
     whisper_model: Optional[str] = None,
     max_episodes: Optional[int] = None,
     chunk_size_mb: Optional[int] = None,
-    overlap_seconds: Optional[int] = None
+    overlap_seconds: Optional[int] = None,
+    delete_audio: Optional[bool] = None
 ) -> Config:
     """Get configuration with priority: CLI args > env vars > defaults."""
     
@@ -72,6 +74,15 @@ def get_config(
         if cli_value is not None:
             return cli_value
         return os.getenv(env_key, default_value)
+    
+    def get_bool_value(cli_value, env_key: str, default_value):
+        """Get boolean value with priority order."""
+        if cli_value is not None:
+            return cli_value
+        env_val = os.getenv(env_key)
+        if env_val is not None:
+            return env_val.lower() in ('true', '1', 'yes', 'on')
+        return default_value
     
     return Config(
         rss_url=get_value(rss_url, "STT_RSS_URL", ""),
@@ -82,5 +93,6 @@ def get_config(
         whisper_model=get_value(whisper_model, "STT_WHISPER_MODEL", "base"),
         max_episodes=int(get_value(max_episodes, "STT_MAX_EPISODES", 10)),
         chunk_size_mb=int(get_value(chunk_size_mb, "STT_CHUNK_SIZE_MB", 25)),
-        overlap_seconds=int(get_value(overlap_seconds, "STT_OVERLAP_SECONDS", 15))
+        overlap_seconds=int(get_value(overlap_seconds, "STT_OVERLAP_SECONDS", 15)),
+        delete_audio=get_bool_value(delete_audio, "STT_DELETE_AUDIO", False)
     )

@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Speech-to-Text Transcriber Launcher
+# このスクリプトはどのディレクトリからでも実行できます
+
+# スクリプトのあるディレクトリの絶対パスを取得
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Python環境の設定
+PYTHON_CMD="python3"
+
+# メインスクリプトのパス
+MAIN_SCRIPT="$PROJECT_ROOT/src/main.py"
+
+# 実行前の環境チェック
+if [ ! -f "$MAIN_SCRIPT" ]; then
+    echo "エラー: メインスクリプトが見つかりません: $MAIN_SCRIPT"
+    exit 1
+fi
+
+# Python環境のチェック
+if ! command -v $PYTHON_CMD &> /dev/null; then
+    echo "エラー: Python3が見つかりません"
+    exit 1
+fi
+
+# プロジェクトディレクトリに移動してスクリプト実行
+cd "$PROJECT_ROOT"
+exec $PYTHON_CMD "$MAIN_SCRIPT" "$@" 
