@@ -3,7 +3,10 @@
 import json
 import logging
 import os
+import ssl
 import tempfile
+import urllib.request
+import warnings
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,6 +14,14 @@ import whisper
 from pydub import AudioSegment
 
 from .config import Config, Episode
+
+# Disable Whisper FP16 warnings
+warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead")
+
+# Configure SSL context for Whisper model downloads
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 
 class AudioTranscriber:
@@ -25,7 +36,18 @@ class AudioTranscriber:
         """Load Whisper model."""
         if self.model is None:
             self.logger.info(f"Loading Whisper model: {self.config.whisper_model}")
-            self.model = whisper.load_model(self.config.whisper_model)
+            
+            # Patch urllib for SSL certificate handling during model download
+            old_urlopen = urllib.request.urlopen
+            def patched_urlopen(*args, **kwargs):
+                return old_urlopen(*args, context=ssl_context, **kwargs)
+            urllib.request.urlopen = patched_urlopen
+            
+            try:
+                self.model = whisper.load_model(self.config.whisper_model)
+            finally:
+                # Restore original urlopen
+                urllib.request.urlopen = old_urlopen
     
     def transcribe(self, audio_path: Path) -> Optional[str]:
         """Transcribe audio file, splitting if necessary."""

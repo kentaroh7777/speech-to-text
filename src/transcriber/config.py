@@ -23,7 +23,7 @@ class Config:
     output_format: str = "txt"
     whisper_model: str = "base"
     max_episodes: int = 10
-    chunk_size_mb: int = 25
+    chunk_size_mb: int = 50
     overlap_seconds: int = 15
     delete_audio: bool = False
     
@@ -83,7 +83,7 @@ def get_config(
         output_format=get_value(output_format, "STT_OUTPUT_FORMAT", "txt"),
         whisper_model=get_value(whisper_model, "STT_WHISPER_MODEL", "base"),
         max_episodes=int(get_value(max_episodes, "STT_MAX_EPISODES", 10)),
-        chunk_size_mb=int(get_value(chunk_size_mb, "STT_CHUNK_SIZE_MB", 25)),
+        chunk_size_mb=int(get_value(chunk_size_mb, "STT_CHUNK_SIZE_MB", 50)),
         overlap_seconds=int(get_value(overlap_seconds, "STT_OVERLAP_SECONDS", 15)),
         delete_audio=bool(get_value(delete_audio, "STT_DELETE_AUDIO", False))
     )

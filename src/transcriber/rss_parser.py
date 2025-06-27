@@ -2,13 +2,24 @@
 
 import logging
 import requests
-from datetime import datetime, timedelta
+import ssl
+import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import List
 from urllib.parse import urlparse
 
 import feedparser
 
 from .config import Episode
+
+# Disable SSL certificate warnings and configure feedparser for SSL issues
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Configure SSL context for feedparser
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 
 class RSSParser:
@@ -22,8 +33,15 @@ class RSSParser:
         try:
             self.logger.info(f"Fetching RSS feed from: {rss_url}")
             
-            # Parse RSS feed
-            feed = feedparser.parse(rss_url)
+            # Use requests to fetch RSS content with SSL handling
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(rss_url, headers=headers, verify=False, timeout=30)
+            response.raise_for_status()
+            
+            # Parse RSS feed from response content
+            feed = feedparser.parse(response.content)
             
             if not feed.entries:
                 self.logger.warning("No episodes found in RSS feed")
@@ -102,7 +120,10 @@ class RSSParser:
         for field in date_fields:
             if hasattr(entry, field) and getattr(entry, field):
                 time_struct = getattr(entry, field)
-                return datetime(*time_struct[:6])
+                # Convert GMT to JST (+9 hours)
+                utc_time = datetime(*time_struct[:6], tzinfo=timezone.utc)
+                jst_time = utc_time.astimezone(timezone(timedelta(hours=9)))
+                return jst_time.replace(tzinfo=None)  # Remove timezone info for comparison
         
         # Fallback to current time
         self.logger.warning(f"No date found for entry: {entry.get('title', 'Unknown')}")

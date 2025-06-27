@@ -1,3 +1,6 @@
 src/transcriber/__pycache__/
 downloads/
 transcripts/
+音声ファイル/
+文字起こし/
+.env
