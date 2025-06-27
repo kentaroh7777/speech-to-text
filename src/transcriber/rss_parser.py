@@ -20,7 +20,7 @@ class RSSParser:
     def fetch_episodes(self, rss_url: str) -> List[Episode]:
         """Fetch episodes from RSS feed."""
         try:
-            self.logger.info(f"Fetching RSS feed from: {rss_url}")
+            self.logger.info(f"RSSフィード取得中: {rss_url}")
             
             # Fetch RSS feed with proper User-Agent
             headers = {
@@ -33,7 +33,7 @@ class RSSParser:
             feed = feedparser.parse(response.content)
             
             if not feed.entries:
-                self.logger.warning("No episodes found in RSS feed")
+                self.logger.warning("RSSフィードにエピソードが見つかりません")
                 return []
             
             episodes = []
@@ -43,14 +43,14 @@ class RSSParser:
                     if episode:
                         episodes.append(episode)
                 except Exception as e:
-                    self.logger.warning(f"Failed to parse entry: {e}")
+                    self.logger.warning(f"エントリの解析に失敗: {e}")
                     continue
             
-            self.logger.info(f"Parsed {len(episodes)} episodes from RSS feed")
+            self.logger.info(f"RSSフィードから{len(episodes)}件のエピソードを解析完了")
             return episodes
             
         except Exception as e:
-            self.logger.error(f"Failed to fetch RSS feed: {e}")
+            self.logger.error(f"RSSフィード取得に失敗: {e}")
             raise
     
     def _parse_entry(self, entry) -> Episode:
@@ -82,7 +82,7 @@ class RSSParser:
                 audio_url = link
         
         if not audio_url:
-            raise ValueError(f"No audio URL found for episode: {title}")
+            raise ValueError(f"エピソードの音声URLが見つかりません: {title}")
         
         # Parse published date
         published_date = self._parse_date(entry)
@@ -115,7 +115,7 @@ class RSSParser:
                 return jst_time.replace(tzinfo=None)  # Remove timezone info for comparison
         
         # Fallback to current time
-        self.logger.warning(f"No date found for entry: {entry.get('title', 'Unknown')}")
+        self.logger.warning(f"エントリの日付が見つかりません: {entry.get('title', '不明')}")
         return datetime.now()
     
     def filter_by_date_range(self, episodes: List[Episode], date_range: str) -> List[Episode]:
@@ -140,7 +140,7 @@ class RSSParser:
             return [sorted_episodes[0]]
         else:
             # Unknown date range, return all
-            self.logger.warning(f"Unknown date range: {date_range}, returning all episodes")
+            self.logger.warning(f"不明な日付範囲: {date_range}, 全エピソードを返します")
             return episodes
         
         filtered = [
@@ -148,5 +148,5 @@ class RSSParser:
             if start_date <= ep.published_date < end_date
         ]
         
-        self.logger.info(f"Filtered to {len(filtered)} episodes for date range: {date_range}")
+        self.logger.info(f"日付範囲({date_range})でフィルタリング結果: {len(filtered)}件")
         return filtered
