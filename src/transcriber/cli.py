@@ -32,7 +32,9 @@ def setup_logging(debug: bool = False) -> None:
 @click.option('--output-format', 
               type=click.Choice(['txt', 'markdown', 'json']),
               help='Output format')
-@click.option('--whisper-model', help='Whisper model to use')
+@click.option('--whisper-model', 
+              type=click.Choice(['tiny', 'base', 'small', 'medium', 'large']),
+              help='Whisper model to use (tiny: fastest/lowest quality, large: slowest/highest quality)')
 @click.option('--max-episodes', type=int, help='Maximum number of episodes to process')
 @click.option('--delete-audio', is_flag=True, help='Delete audio files after successful transcription')
 @click.option('--debug', is_flag=True, help='Enable debug logging')
