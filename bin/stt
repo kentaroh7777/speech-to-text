@@ -3,6 +3,9 @@
 # Speech-to-Text Transcriber Launcher
 # このスクリプトはどのディレクトリからでも実行できます
 
+# 実行時の作業ディレクトリを保存
+ORIGINAL_CWD="$(pwd)"
+
 # スクリプトのあるディレクトリの絶対パスを取得
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -24,6 +27,9 @@ if ! command -v $PYTHON_CMD &> /dev/null; then
     echo "エラー: Python3が見つかりません"
     exit 1
 fi
+
+# 実行時作業ディレクトリを環境変数に設定
+export STT_ORIGINAL_CWD="$ORIGINAL_CWD"
 
 # プロジェクトディレクトリに移動してスクリプト実行
 cd "$PROJECT_ROOT"

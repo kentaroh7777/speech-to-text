@@ -32,9 +32,29 @@ class Config:
         if not self.rss_url:
             raise ValueError("RSS URL is required")
         
+        # Convert relative paths to absolute paths from original working directory
+        self.download_dir = self._resolve_path(self.download_dir)
+        self.output_dir = self._resolve_path(self.output_dir)
+        
         # Ensure directories exist
         Path(self.download_dir).mkdir(parents=True, exist_ok=True)
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+    
+    def _resolve_path(self, path: str) -> str:
+        """Resolve path relative to original working directory."""
+        path_obj = Path(path)
+        
+        # If it's already absolute, return as is
+        if path_obj.is_absolute():
+            return str(path_obj)
+        
+        # Get original working directory from environment (set by stt script)
+        original_cwd = os.getenv('STT_ORIGINAL_CWD')
+        if original_cwd:
+            return str(Path(original_cwd) / path_obj)
+        
+        # Fallback to current working directory
+        return str(Path.cwd() / path_obj)
 
 
 @dataclass

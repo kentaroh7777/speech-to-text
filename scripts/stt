@@ -1,1 +1,22 @@
- 
+#!/usr/bin/env python3
+"""Wrapper script for speech-to-text transcriber."""
+
+import sys
+import os
+from pathlib import Path
+
+# Add the src directory to Python path
+project_root = Path(__file__).parent.parent
+src_path = project_root / "src"
+sys.path.insert(0, str(src_path))
+
+# Store the original working directory (where stt was executed)
+original_cwd = os.getcwd()
+
+# Set environment variable for original working directory
+os.environ['STT_ORIGINAL_CWD'] = original_cwd
+
+# Import and run the CLI
+if __name__ == "__main__":
+    from transcriber.cli import main
+    main() 
