@@ -163,7 +163,7 @@ class AudioTranscriber:
         """Get output path for transcript."""
         sanitized_title = episode.get_sanitized_title()
         date_str = episode.published_date.strftime("%Y%m%d")
-        filename = f"{sanitized_title}_{date_str}.{self.config.output_format}"
+        filename = f"{date_str}_{sanitized_title}.{self.config.output_format}"
         
         return Path(self.config.output_dir) / filename
     

@@ -1,0 +1,38 @@
+---
+description: space to post
+globs: 
+alwaysApply: false
+---
+# スペース音声配信の記事化ルール
+
+
+## ワークフロー1
+- {{本日配信音声の文字起こし}}実行
+- {{本日の文字起こしファイル}}を用い、以下実行する
+  - [write-mag-rule.mdc](mdc:.cursor/rules/modes/write-mag-rule.mdc) に従い、メルマガ原稿作成。出力先は mag/
+
+
+
+## 定義
+- name: 作業フォルダ
+  path: /Users/taroken/Library/CloudStorage/GoogleDrive-kabuco.h@gmail.com/マイドライブ/コンテンツ管理/おはやしラジオ
+  description: 記事化の作業フォルダ。このフォルダの下に以下のフォルダがある。
+  - X: X投稿テキストファイル
+  - mag: メルマガ投稿テキストファイル
+  - blog: ブログ投稿テキストファイル
+  - 音声ファイル: 配信音声ファイル
+  - 文字起こし: 配信音声を文字起こししたファイル
+
+- name: 本日配信音声の文字起こし
+  action:
+```bash
+cd {{作業フォルダ}}
+stt --download-dir ./音声ファイル --output-dir ./文字起こし --whisper-model small
+```
+  description: {{本日の文字起こしファイル}}が生成される。
+
+- name: 本日の文字起こしファイル
+  path: {{作業フォルダ}}/文字起こし/{{タイトル}}_{{本日の日付}}.txt
+
+- name: 本日の日付
+  description: 本日の日付、もしくはその日付を YYYYMMDD で表現した文字列

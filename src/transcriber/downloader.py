@@ -69,7 +69,7 @@ class AudioDownloader:
             extension = '.m4a'
         
         # Generate filename
-        filename = f"{sanitized_title}_{date_str}{extension}"
+        filename = f"{date_str}_{sanitized_title}{extension}"
         
         return self.download_dir / filename
     
