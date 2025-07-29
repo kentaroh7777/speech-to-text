@@ -8,6 +8,12 @@ __pycache__/
 *$py.class
 src/transcriber/__pycache__/
 
+# Python package build
+build/
+dist/
+*.egg-info/
+*.egg
+
 # Application data
 downloads/
 transcripts/

@@ -31,24 +31,112 @@
 - feedparser
 - click
 
-## インストール
+## インストール・セットアップ
 
-1. リポジトリをクローン
+### 方法1: 直接実行（推奨）
+
+#### 1. リポジトリをクローン
+
 ```bash
-git clone <repository-url>
+git clone https://github.com/yourusername/speech-to-text.git
 cd speech-to-text
 ```
 
-2. 依存関係をインストール
+#### 2. 依存関係をインストール
+
 ```bash
 pip install -r requirements.txt
 ```
 
-3. 環境設定（RSSモード使用時）
+#### 3. 設定ファイルをコピー
+
 ```bash
+# Unix/Linux/macOS
 cp .env.example .env
-# .envファイルを編集してRSS URLなどを設定
+
+# Windows (コマンドプロンプト)
+copy .env.example .env
+
+# Windows (PowerShell)
+Copy-Item .env.example .env
 ```
+
+#### 4. 設定を編集
+
+`.env`ファイルを編集して必要な設定を行います：
+
+```bash
+# RSS feed URL（RSSモード使用時）
+STT_RSS_URL=https://your-rss-feed.com/rss
+
+# OpenAI API（オプション）
+OPENAI_API_KEY=sk-your-api-key-here
+```
+
+### 方法2: Pythonパッケージとしてインストール
+
+```bash
+# 開発モードでインストール（推奨）
+pip install -e .
+
+# 通常インストール
+pip install .
+```
+
+インストール後は、どこからでも`stt`コマンドが使用可能になります。
+
+## 実行方法
+
+### Unix/Linux/macOS環境
+
+```bash
+# 直接実行
+./scripts/stt --help
+
+# または
+python3 scripts/stt --help
+
+# パッケージインストール後
+stt --help
+```
+
+### Windows環境
+
+#### コマンドプロンプト
+```cmd
+REM バッチファイル使用
+scripts\stt.bat --help
+
+REM 直接Python実行
+python scripts\stt --help
+
+REM パッケージインストール後
+stt --help
+```
+
+#### PowerShell
+```powershell
+# PowerShellスクリプト使用
+scripts\stt.ps1 --help
+
+# 直接Python実行
+python scripts\stt --help
+
+# パッケージインストール後
+stt --help
+```
+
+⚠️ **PowerShell実行ポリシー注意**: PowerShellスクリプトを初回実行時にエラーが出る場合：
+
+```powershell
+# 実行ポリシーを確認
+Get-ExecutionPolicy
+
+# 必要に応じて実行ポリシーを変更（管理者権限が必要）
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+📖 **Windows環境の詳細**: [WINDOWS_SETUP.md](WINDOWS_SETUP.md)をご覧ください。
 
 ## 設定
 
@@ -173,6 +261,7 @@ RSS フィードから音声ファイルを自動ダウンロードして処理�
 
 #### ローカルファイルの例
 
+**Unix/Linux/macOS:**
 ```bash
 # 音声ファイルディレクトリの最新ファイルを高精度で文字起こし
 ./scripts/stt --local-dir ~/Downloads/audio --date-range latest --whisper-model medium
@@ -191,8 +280,48 @@ export OPENAI_API_KEY=sk-your-api-key-here
 ./scripts/stt --local-dir ~/audio --use-openai-api
 ```
 
+**Windows (コマンドプロンプト):**
+```cmd
+REM 音声ファイルディレクトリの最新ファイルを高精度で文字起こし
+scripts\stt.bat --local-dir C:\Users\%USERNAME%\Downloads\audio --date-range latest --whisper-model medium
+
+REM 今日録音した音声を全てMarkdown形式で出力
+scripts\stt.bat --local-dir C:\Users\%USERNAME%\Documents\recordings --date-range today --output-format markdown
+
+REM OpenAI APIを強制使用（高速処理）⚠️料金注意
+scripts\stt.bat --local-dir C:\Users\%USERNAME%\audio --use-openai-api --openai-api-key sk-your-key
+
+REM OpenAI APIキーを環境変数で設定して使用
+set OPENAI_API_KEY=sk-your-api-key-here
+scripts\stt.bat --local-dir C:\Users\%USERNAME%\audio --use-openai-api
+```
+
+**Windows (PowerShell):**
+```powershell
+# 音声ファイルディレクトリの最新ファイルを高精度で文字起こし
+scripts\stt.ps1 --local-dir "$env:USERPROFILE\Downloads\audio" --date-range latest --whisper-model medium
+
+# 今日録音した音声を全てMarkdown形式で出力
+scripts\stt.ps1 --local-dir "$env:USERPROFILE\Documents\recordings" --date-range today --output-format markdown
+
+# OpenAI APIを強制使用（高速処理）⚠️料金注意
+scripts\stt.ps1 --local-dir "$env:USERPROFILE\audio" --use-openai-api --openai-api-key sk-your-key
+
+# OpenAI APIキーを環境変数で設定して使用
+$env:OPENAI_API_KEY = "sk-your-api-key-here"
+scripts\stt.ps1 --local-dir "$env:USERPROFILE\audio" --use-openai-api
+```
+
+**パッケージインストール後（全OS共通）:**
+```bash
+# どこからでも実行可能
+stt --local-dir ~/audio --date-range latest --whisper-model medium
+stt --local-dir ./recordings --date-range today --output-format markdown
+```
+
 #### RSSフィードの例
 
+**Unix/Linux/macOS:**
 ```bash
 # 昨日の配信を全て処理
 ./scripts/stt --rss-url "https://example.com/feed.rss" --date-range yesterday
@@ -208,6 +337,30 @@ export OPENAI_API_KEY=sk-your-api-key-here
 
 # ローカルWhisper失敗時にOpenAI APIフォールバック無効化
 ./scripts/stt --rss-url "https://example.com/feed.rss" --no-openai-fallback
+```
+
+**Windows (コマンドプロンプト):**
+```cmd
+REM 昨日の配信を全て処理
+scripts\stt.bat --rss-url "https://example.com/feed.rss" --date-range yesterday
+
+REM 最新3件をMarkdown形式で出力
+scripts\stt.bat --rss-url "https://example.com/feed.rss" --date-range latest --max-episodes 3 --output-format markdown
+
+REM より高精度なモデルを使用
+scripts\stt.bat --rss-url "https://example.com/feed.rss" --whisper-model medium
+```
+
+**Windows (PowerShell):**
+```powershell
+# 昨日の配信を全て処理
+scripts\stt.ps1 --rss-url "https://example.com/feed.rss" --date-range yesterday
+
+# 最新3件をMarkdown形式で出力
+scripts\stt.ps1 --rss-url "https://example.com/feed.rss" --date-range latest --max-episodes 3 --output-format markdown
+
+# より高精度なモデルを使用
+scripts\stt.ps1 --rss-url "https://example.com/feed.rss" --whisper-model medium
 ```
 
 ## 出力ファイル
@@ -302,6 +455,26 @@ transcripts/
    - インターネット接続を確認
    - `pip install openai`でライブラリがインストールされているか確認
 
+9. **Windows環境での問題**
+   - **PowerShell実行ポリシーエラー**: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`を実行
+   - **Python not found**: Microsoft StoreまたはPython公式サイトからPythonをインストール
+   - **パスの区切り文字**: Windowsでは`\`、Unix系では`/`を使用
+   - **日本語ファイル名**: 文字化けが発生する場合は英数字のファイル名を使用
+
+10. **クロスプラットフォーム環境変数設定**
+    ```bash
+    # Unix/Linux/macOS (.bashrc, .zshrc等)
+    export OPENAI_API_KEY=sk-your-key
+
+    # Windows (コマンドプロンプト)
+    set OPENAI_API_KEY=sk-your-key
+
+    # Windows (PowerShell)
+    $env:OPENAI_API_KEY = "sk-your-key"
+
+    # 永続的に設定（Windows）
+    setx OPENAI_API_KEY "sk-your-key"
+    ```
 
 ## 開発・貢献
 
