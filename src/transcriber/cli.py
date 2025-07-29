@@ -106,21 +106,19 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
     """Speech-to-text transcriber CLI.
     
     Supports three input modes:
-    1. RSS feeds (--rss-url)
-    2. Local audio files (--local-dir) 
-    3. X Spaces (--X-space)
+    1. RSS feeds (--rss-url or STT_RSS_URL env var)
+    2. Local audio files (--local-dir or STT_LOCAL_DIR env var) 
+    3. X Spaces (--X-space or STT_X_SPACES_URL env var)
     """
     try:
-        # Validate input options - exactly one source must be specified
-        input_sources = [rss_url, local_dir, x_space]
-        specified_sources = [src for src in input_sources if src]
+        # Validate CLI input options first (before considering environment variables)
+        cli_input_sources = [rss_url, local_dir, x_space]
+        specified_cli_sources = [src for src in cli_input_sources if src]
         
-        if len(specified_sources) == 0:
-            raise click.ClickException("Error: Must specify one of --rss-url, --local-dir, or --X-space")
-        elif len(specified_sources) > 1:
+        if len(specified_cli_sources) > 1:
             raise click.ClickException("Error: Can only specify one input source at a time")
 
-        # Get configuration
+        # Get configuration (includes environment variables as fallback)
         config = get_config(
             rss_url=rss_url,
             local_dir=local_dir,
@@ -142,17 +140,24 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
             contact=contact
         )
 
-        logger.info(f"Configuration: {config}")
+        # Final validation: ensure at least one source is available (CLI or env vars)
+        final_input_sources = [config.rss_url, config.local_dir, config.x_spaces_url]
+        specified_final_sources = [src for src in final_input_sources if src]
+        
+        if len(specified_final_sources) == 0:
+            raise click.ClickException("Error: Must specify one of --rss-url, --local-dir, or --X-space (or set environment variables STT_RSS_URL, STT_LOCAL_DIR, or STT_X_SPACES_URL)")
+
+        logger.debug(f"Configuration: {config}")
 
         # Create output directory
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
         # Process based on input source
-        if local_dir:
+        if config.local_dir:
             episodes = process_local_directory(config)
-        elif rss_url:
+        elif config.rss_url:
             episodes = process_rss_feed(config)
-        elif x_space:
+        elif config.x_spaces_url:
             episodes = process_x_spaces(config)
 
         if not episodes:
@@ -179,8 +184,8 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
                 source = config.x_spaces_url
             else:
                 # Download audio file
-                downloader = AudioDownloader(config)
-                audio_path = downloader.download(episode)
+                downloader = AudioDownloader(config.download_dir)
+                audio_path = downloader.download(episode.audio_url, episode.title, episode.published_date)
                 source = config.rss_url
                 if not audio_path:
                     logger.error(f"Failed to download audio for: {episode.title}")
@@ -264,8 +269,9 @@ def process_local_directory(config):
 def process_rss_feed(config):
     """Process RSS feed."""
     logger.info(f"Processing RSS feed: {config.rss_url}")
-    parser = RSSParser(config)
-    return parser.parse()
+    parser = RSSParser()
+    episodes = parser.fetch_episodes(config.rss_url)
+    return parser.filter_by_date_range(episodes, config.date_range)
 
 if __name__ == "__main__":
     main()

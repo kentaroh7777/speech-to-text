@@ -101,7 +101,34 @@ pip install .
 
 インストール後は、どこからでも`stt`コマンドが使用可能になります。
 
-## 実行方法
+## 基本的な使い方
+
+### 環境変数での自動設定
+
+CLI引数を指定しなくても、環境変数が設定されていれば自動的に動作します：
+
+```bash
+# .envファイルまたは環境変数に設定
+export STT_RSS_URL="https://example.com/podcast.rss"
+export STT_AUTHOR="作成者名"
+export STT_CONTACT="contact@example.com"
+
+# CLI引数なしで実行（環境変数から自動設定）
+python3 scripts/stt
+```
+
+**設定の優先順位:**
+1. **CLI引数** （最優先）
+2. **環境変数** （フォールバック）
+3. **デフォルト値** （最終フォールバック）
+
+例：環境変数で`STT_RSS_URL`が設定されていても、`--local-dir`を指定すればローカルモードが優先されます。
+
+**セキュリティ考慮:**
+- 設定情報（API キーを含む）は`DEBUG`ログレベルでのみ出力されます
+- 通常の`INFO`レベルでは機密情報は表示されません
+
+### モード別の使用例
 
 🎯 **推奨**: `scripts/`ディレクトリに統一されたクロスプラットフォーム対応スクリプトがあります。
 
@@ -551,8 +578,29 @@ transcripts/
 
 4. **ローカルWhisperが動作しない**
    - Pythonの依存関係を確認: `pip install -r requirements.txt`
-   - モデルファイルのダウンロード容量を確認
-   - **自動フォールバック**: OpenAI APIキーが設定されていれば自動的に切り替わります
+   - ffmpegがインストールされているか確認
+
+### デバッグ情報の確認
+
+問題が発生した場合、詳細な情報を確認する方法：
+
+```bash
+# 1. 通常実行でエラーメッセージを確認
+python3 scripts/stt --local-dir audio --output-format json
+
+# 2. 詳細なPythonエラー情報を表示
+python3 -u scripts/stt --local-dir audio --output-format json
+
+# 3. ログをファイルに保存して詳細確認
+python3 scripts/stt --local-dir audio --output-format json > /tmp/stt.log 2>&1
+cat /tmp/stt.log
+```
+
+**出力される情報レベル:**
+- **INFO**: 処理状況、進行状況
+- **WARNING**: 注意が必要な状況
+- **ERROR**: エラー情報
+- **DEBUG**: 詳細な設定・処理情報（開発者向け）
 
 5. **文字起こしが遅い**
    - STT_WHISPER_MODELでより小さなWhisperモデル（`tiny`）を試す
