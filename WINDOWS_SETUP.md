@@ -76,6 +76,9 @@ scripts\stt.bat --local-dir C:\Users\%USERNAME%\Downloads\audio --date-range lat
 
 REM RSSフィードからの処理
 scripts\stt.bat --rss-url "https://example.com/feed.rss" --date-range yesterday
+
+REM Python直接実行（全OS共通）
+python scripts\stt --help
 ```
 
 ### PowerShellを使用

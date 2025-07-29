@@ -87,13 +87,15 @@ pip install .
 
 ## 実行方法
 
+🎯 **推奨**: `scripts/`ディレクトリに統一されたクロスプラットフォーム対応スクリプトがあります。
+
 ### Unix/Linux/macOS環境
 
 ```bash
-# 直接実行
+# scripts/stt を実行（推奨）
 ./scripts/stt --help
 
-# または
+# Python直接実行
 python3 scripts/stt --help
 
 # パッケージインストール後
@@ -488,6 +490,9 @@ cd speech-to-text
 pip install -r requirements.txt
 cp .env.example .env
 # .envファイルを編集して設定
+
+# 実行テスト
+./scripts/stt --help
 ```
 
 ## ライセンス
