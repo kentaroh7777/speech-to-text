@@ -1,10 +1,11 @@
 """Configuration management for speech-to-text transcriber."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
+import json
 
 try:
     from dotenv import load_dotenv
@@ -15,37 +16,30 @@ except ImportError:
 
 @dataclass
 class Config:
-    """Configuration for the transcriber."""
-    rss_url: str = ""  # Make RSS URL optional for local mode
+    """Configuration for transcription."""
+    rss_url: str = ""
     local_dir: str = ""
-    x_spaces_url: str = ""  # 修正: twitter_spaces_url → x_spaces_url
-    download_dir: str = "./downloads"
-    output_dir: str = "./transcripts"
+    x_spaces_url: str = ""
+    download_dir: str = ""
+    output_dir: str = ""
     date_range: str = "today"
     output_format: str = "txt"
     whisper_model: str = "base"
-    max_episodes: int = 10
-    chunk_size_mb: int = 50
+    max_episodes: int = 5
+    chunk_size_mb: int = 25
     overlap_seconds: int = 15
     delete_audio: bool = False
     delete_original: bool = False
-    # OpenAI API settings
     openai_api_key: str = ""
     use_openai_api: bool = False
-    openai_fallback: bool = True  # Fallback to OpenAI API if local Whisper fails
-    
-    def __str__(self):
-        """String representation with masked API key for security."""
-        # Create a copy of the config with masked API key
-        masked_config = self.__dict__.copy()
-        if masked_config.get('openai_api_key'):
-            key = masked_config['openai_api_key']
-            if len(key) > 8:
-                masked_config['openai_api_key'] = key[:4] + '***' + key[-4:]
-            else:
-                masked_config['openai_api_key'] = '***'
-        
-        return f"Config({', '.join(f'{k}={repr(v)}' for k, v in masked_config.items())})"
+    openai_fallback: bool = True
+    author: str = ""
+    contact: str = ""
+
+    def __str__(self) -> str:
+        """String representation with masked API key."""
+        masked_key = self.openai_api_key[:7] + '*' * (len(self.openai_api_key) - 10) + self.openai_api_key[-3:] if len(self.openai_api_key) > 10 else '***'
+        return f"Config(rss_url='{self.rss_url}', local_dir='{self.local_dir}', x_spaces_url='{self.x_spaces_url}', download_dir='{self.download_dir}', output_dir='{self.output_dir}', date_range='{self.date_range}', output_format='{self.output_format}', whisper_model='{self.whisper_model}', max_episodes={self.max_episodes}, chunk_size_mb={self.chunk_size_mb}, overlap_seconds={self.overlap_seconds}, delete_audio={self.delete_audio}, delete_original={self.delete_original}, openai_api_key='{masked_key}', use_openai_api={self.use_openai_api}, openai_fallback={self.openai_fallback}, author='{self.author}', contact='{self.contact}')"
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -95,49 +89,52 @@ class Episode:
         return sanitized
 
 
-def get_config(
-    rss_url: Optional[str] = None,
-    local_dir: Optional[str] = None,
-    x_spaces_url: Optional[str] = None,  # 修正: twitter_spaces_url → x_spaces_url
-    download_dir: Optional[str] = None,
-    output_dir: Optional[str] = None,
-    date_range: Optional[str] = None,
-    output_format: Optional[str] = None,
-    whisper_model: Optional[str] = None,
-    max_episodes: Optional[int] = None,
-    chunk_size_mb: Optional[int] = None,
-    overlap_seconds: Optional[int] = None,
-    delete_audio: Optional[bool] = None,
-    delete_original: Optional[bool] = None,
-    openai_api_key: Optional[str] = None,
-    use_openai_api: Optional[bool] = None,
-    openai_fallback: Optional[bool] = None,
-    no_openai_fallback: Optional[bool] = None
-) -> Config:
-    """Get configuration with priority: CLI args > env vars > defaults."""
+@dataclass
+class TranscriptResult:
+    """Structured transcription result with metadata."""
+    transcript: str
+    filename: str
+    date: str  # 発信日（ファイル名から抽出、なければファイル更新日）
+    source: str = ""  # URL or filename only (not full path)
+    duration: float = 0.0  # seconds
+    size_mb: float = 0.0
+    model: str = ""
+    engine: str = ""  # 'local_whisper', 'openai_api'
+    processed_at: str = ""
+    processing_time: str = ""
+    author: str = ""
+    contact: str = ""
     
-    def get_value(cli_value, env_key: str, default_value):
-        """Get value with priority order."""
-        if cli_value is not None:
-            return cli_value
-        return os.getenv(env_key, default_value)
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+    
+    def to_json(self, indent: int = 2) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
+
+def get_config(**kwargs) -> Config:
+    """Get configuration from environment variables and kwargs."""
+    load_dotenv()
     
     return Config(
-        rss_url=get_value(rss_url, "STT_RSS_URL", ""),  # Default to empty string
-        local_dir=local_dir or "",
-        x_spaces_url=x_spaces_url or "",  # 修正: twitter_spaces_url → x_spaces_url
-        download_dir=get_value(download_dir, "STT_DOWNLOAD_DIR", "./downloads"),
-        output_dir=get_value(output_dir, "STT_OUTPUT_DIR", "./transcripts"),
-        date_range=get_value(date_range, "STT_DATE_RANGE", "today"),
-        output_format=get_value(output_format, "STT_OUTPUT_FORMAT", "txt"),
-        whisper_model=get_value(whisper_model, "STT_WHISPER_MODEL", "base"),
-        max_episodes=int(get_value(max_episodes, "STT_MAX_EPISODES", 10)),
-        chunk_size_mb=int(get_value(chunk_size_mb, "STT_CHUNK_SIZE_MB", 50)),
-        overlap_seconds=int(get_value(overlap_seconds, "STT_OVERLAP_SECONDS", 15)),
-        delete_audio=bool(get_value(delete_audio, "STT_DELETE_AUDIO", False)),
-        delete_original=delete_original or False,
-        # OpenAI API settings
-        openai_api_key=get_value(openai_api_key, "OPENAI_API_KEY", ""),
-        use_openai_api=bool(get_value(use_openai_api, "STT_USE_OPENAI_API", False)),
-        openai_fallback=not no_openai_fallback if no_openai_fallback is not None else bool(get_value(openai_fallback, "STT_OPENAI_FALLBACK", True))
+        rss_url=kwargs.get('rss_url') or os.getenv('STT_RSS_URL', ''),
+        local_dir=kwargs.get('local_dir') or os.getenv('STT_LOCAL_DIR', ''),
+        x_spaces_url=kwargs.get('x_spaces_url') or os.getenv('STT_X_SPACES_URL', ''),
+        download_dir=kwargs.get('download_dir') or os.getenv('STT_DOWNLOAD_DIR', './downloads'),
+        output_dir=kwargs.get('output_dir') or os.getenv('STT_OUTPUT_DIR', './transcripts'),
+        date_range=kwargs.get('date_range') or os.getenv('STT_DATE_RANGE', 'today'),
+        output_format=kwargs.get('output_format') or os.getenv('STT_OUTPUT_FORMAT', 'txt'),
+        whisper_model=kwargs.get('whisper_model') or os.getenv('STT_WHISPER_MODEL', 'base'),
+        max_episodes=int(kwargs.get('max_episodes') or os.getenv('STT_MAX_EPISODES', '5')),
+        chunk_size_mb=int(kwargs.get('chunk_size_mb') or os.getenv('STT_CHUNK_SIZE_MB', '25')),
+        overlap_seconds=int(kwargs.get('overlap_seconds') or os.getenv('STT_OVERLAP_SECONDS', '15')),
+        delete_audio=kwargs.get('delete_audio', False),
+        delete_original=kwargs.get('delete_original', False),
+        openai_api_key=kwargs.get('openai_api_key') or os.getenv('OPENAI_API_KEY', ''),
+        use_openai_api=kwargs.get('use_openai_api') or os.getenv('STT_USE_OPENAI_API', '').lower() == 'true',
+        openai_fallback=kwargs.get('openai_fallback', True) if 'openai_fallback' in kwargs else os.getenv('STT_OPENAI_FALLBACK', 'true').lower() == 'true',
+        author=kwargs.get('author') or os.getenv('STT_AUTHOR', ''),
+        contact=kwargs.get('contact') or os.getenv('STT_CONTACT', '')
     )

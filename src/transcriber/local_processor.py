@@ -52,7 +52,8 @@ def _file_to_episode(file_path: Path) -> Episode:
     else:
         # Use file modification time if no date in filename
         mtime = file_path.stat().st_mtime
-        published_date = datetime.fromtimestamp(mtime).strftime("%Y%m%d")
+        mtime_datetime = datetime.fromtimestamp(mtime)
+        published_date = mtime_datetime.strftime("%Y-%m-%d %H:%M:%S")
         date_source = "mtime"
     
     # Get file modification time for latest sorting
@@ -72,18 +73,41 @@ def _file_to_episode(file_path: Path) -> Episode:
     return episode
 
 def _extract_date_from_filename(filename: str) -> str:
-    """Extract date from filename in YYYYMMDD format."""
+    """Extract date (and time if available) from filename."""
+    # Pattern for YYYYMMDD_HHMM (20240729_1430)
+    pattern_datetime = r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})'
+    match_datetime = re.search(pattern_datetime, filename)
+    if match_datetime:
+        year, month, day, hour, minute = match_datetime.groups()
+        return f"{year}-{month}-{day} {hour}:{minute}:00"
+    
+    # Pattern for YYYYMMDD_HH (20240729_14)
+    pattern_date_hour = r'(\d{4})(\d{2})(\d{2})_(\d{2})'
+    match_date_hour = re.search(pattern_date_hour, filename)
+    if match_date_hour:
+        year, month, day, hour = match_date_hour.groups()
+        return f"{year}-{month}-{day} {hour}:00:00"
+    
     # Pattern for YYYYMMDD (20240729)
-    pattern1 = r'(\d{4})(\d{2})(\d{2})'
-    match1 = re.search(pattern1, filename)
-    if match1:
-        return match1.group(1) + match1.group(2) + match1.group(3)
+    pattern_date = r'(\d{4})(\d{2})(\d{2})'
+    match_date = re.search(pattern_date, filename)
+    if match_date:
+        year, month, day = match_date.groups()
+        return f"{year}-{month}-{day}"
+    
+    # Pattern for YYYY-MM-DD_HH-MM or YYYY_MM_DD_HH_MM
+    pattern_sep_datetime = r'(\d{4})[-_](\d{2})[-_](\d{2})[-_](\d{2})[-_](\d{2})'
+    match_sep_datetime = re.search(pattern_sep_datetime, filename)
+    if match_sep_datetime:
+        year, month, day, hour, minute = match_sep_datetime.groups()
+        return f"{year}-{month}-{day} {hour}:{minute}:00"
     
     # Pattern for YYYY-MM-DD or YYYY_MM_DD
-    pattern2 = r'(\d{4})[-_](\d{2})[-_](\d{2})'
-    match2 = re.search(pattern2, filename)
-    if match2:
-        return match2.group(1) + match2.group(2) + match2.group(3)
+    pattern_sep_date = r'(\d{4})[-_](\d{2})[-_](\d{2})'
+    match_sep_date = re.search(pattern_sep_date, filename)
+    if match_sep_date:
+        year, month, day = match_sep_date.groups()
+        return f"{year}-{month}-{day}"
     
     return ""
 

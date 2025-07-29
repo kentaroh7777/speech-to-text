@@ -262,12 +262,56 @@ X Spaces（旧Twitter Spaces）の音声を直接取得して文字起こしし�
 
 # ダウンロード先を指定
 ./scripts/stt --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj" --download-dir x-spaces-audio
+
+# JSON形式で詳細なメタデータを含む出力
+./scripts/stt --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj" --output-format json
 ```
 
 #### X Spaces特有機能
 - **自動無音削除**: 冒頭の無音部分を自動検出・削除（-50dB閾値、0.1秒以上）
 - **URL形式**: スペース直接URL・ツイートURL両方対応
 - **音声形式**: MP3形式で高品質ダウンロード
+
+## 📊 出力形式
+
+### TXT形式（デフォルト）
+```txt
+文字起こし結果がプレーンテキストで保存されます
+```
+
+### JSON形式
+```bash
+./scripts/stt --output-format json
+```
+
+JSON出力には以下のメタデータが含まれます：
+```json
+{
+  "transcript": "文字起こしテキスト",
+  "filename": "処理ファイル名",
+  "date": "2025-07-29 11:00:00",
+  "source": "audio.mp3|https://example.com/feed.rss",
+  "duration": 440.5,
+  "size_mb": 2.83,
+  "model": "tiny",
+  "engine": "local_whisper|openai_api",
+  "processed_at": "2025-07-29 11:00:00",
+  "processing_time": "153.8s",
+  "author": "作成者名",
+  "contact": "contact@example.com"
+}
+```
+
+**dateフィールド詳細:**
+- **RSS**: 配信日時（時刻含む）
+- **X Spaces**: ダウンロード日時（TODO: 実際の配信時刻）
+- **ローカルファイル**: ファイル名から抽出（YYYYMMDD_HHMM等）、なければファイル更新日時
+
+JSON形式は以下の用途に最適です：
+- **データ分析**: 処理時間・ファイルサイズの分析
+- **品質管理**: 使用モデル・エンジンの追跡
+- **自動化**: 他のシステムとの連携
+- **セキュリティ**: ローカルファイルはファイル名のみ表示
 
 ### コマンドラインオプション
 
@@ -284,6 +328,7 @@ X Spaces（旧Twitter Spaces）の音声を直接取得して文字起こしし�
 | `--X-space` | X Spaces URL（スペースURL または ツイートURL） | - |
 | `--download-dir` | 音声ファイルのダウンロード先 | `downloads` |
 | `--output-dir` | 文字起こし結果の保存先 | `transcripts` |
+| `--output-format` | 出力形式 (`txt`, `json`) | `txt` |
 | `--date-range` | 処理する日付範囲 (`today`, `yesterday`, `last-week`, `latest`) | `today` |
 | `--whisper-model` | Whisperモデル (`tiny`, `base`, `small`, `medium`, `large`) | `base` |
 | `--delete-audio` | 処理後にダウンロードした音声ファイルを削除 | `False` |
@@ -291,6 +336,8 @@ X Spaces（旧Twitter Spaces）の音声を直接取得して文字起こしし�
 | `--use-openai-api` | OpenAI APIを優先使用 | `False` |
 | `--openai-api-key` | OpenAI APIキー（環境変数でも設定可能） | - |
 | `--no-openai-fallback` | ローカルWhisper失敗時のAPI切替を無効化 | `False` |
+| `--author` | 作成者名（JSONメタデータ用） | `STT_AUTHOR` |
+| `--contact` | 連絡先情報（JSONメタデータ用） | `STT_CONTACT` |
 
 **注意**: `--local-dir`が指定された場合、`--rss-url`は無視されます（ローカルファイル優先）。
 

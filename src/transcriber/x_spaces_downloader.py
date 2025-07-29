@@ -86,8 +86,8 @@ class XSpacesDownloader:
         # Extract title from filename (remove extension)
         title = file_path.stem
         
-        # Use current date as published date
-        published_date = datetime.now().strftime("%Y%m%d")
+        # Use current datetime as published date (TODO: Extract actual space time from API)
+        published_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         return Episode(
             title=title,

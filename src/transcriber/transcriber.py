@@ -339,3 +339,10 @@ class AudioTranscriber:
                 f.write(transcript)
         
         self.logger.info(f"Transcript saved: {output_path}")
+
+    def get_engine_name(self) -> str:
+        """Get the name of the transcription engine being used."""
+        if self.use_openai:
+            return "openai_api"
+        else:
+            return "local_whisper"
