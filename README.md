@@ -302,3 +302,31 @@ transcripts/
    - インターネット接続を確認
    - `pip install openai`でライブラリがインストールされているか確認
 
+
+## 開発・貢献
+
+このプロジェクトはオープンソースです。バグ報告、機能提案、プルリクエストを歓迎します。
+
+### セットアップ
+
+```bash
+git clone https://github.com/yourusername/speech-to-text.git
+cd speech-to-text
+pip install -r requirements.txt
+cp .env.example .env
+# .envファイルを編集して設定
+```
+
+## ライセンス
+
+このプロジェクトは [MIT License](LICENSE) の下でライセンスされています。
+
+## 作者
+
+- **Hayashi** - [GitHub](https://github.com/yourusername)
+
+## 謝辞
+
+- [OpenAI Whisper](https://github.com/openai/whisper) - ローカル音声認識エンジン
+- [OpenAI API](https://platform.openai.com/) - クラウド音声認識サービス
+

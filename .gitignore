@@ -1,6 +1,34 @@
+# Environment files
+.env
+.env.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
 src/transcriber/__pycache__/
+
+# Application data
 downloads/
 transcripts/
 音声ファイル/
 文字起こし/
-.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Test files
+test-*
+tmp/
