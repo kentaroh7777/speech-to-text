@@ -1,188 +1,159 @@
-"""CLI entry point for speech-to-text transcriber."""
+#!/usr/bin/env python3
+"""Speech-to-text transcriber CLI."""
 
 import click
 import logging
-import sys
 from pathlib import Path
-from typing import Optional
-
-from .config import Config, get_config
+from .config import get_config
 from .rss_parser import RSSParser
 from .downloader import AudioDownloader
-from .transcriber import AudioTranscriber
-from .local_processor import LocalFileProcessor
+from .local_processor import find_audio_files
+from .x_spaces_downloader import XSpacesDownloader  # 修正
+from .transcriber import AudioTranscriber  # 正しいクラス名に修正
 
-
-def setup_logging(debug: bool = False) -> None:
-    """Setup logging configuration."""
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()]
-    )
-
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @click.command()
 @click.option('--rss-url', help='RSS feed URL')
 @click.option('--local-dir', help='Local directory containing audio files to transcribe')
-@click.option('--download-dir', help='Directory to save audio files')
-@click.option('--output-dir', help='Directory to save transcripts')
-@click.option('--date-range', 
+@click.option('--X-space', help='X Spaces URL (space URL or tweet URL)')  # 修正
+@click.option('--download-dir', default='downloads', help='Directory to save audio files')
+@click.option('--output-dir', default='transcripts', help='Directory to save transcripts')
+@click.option('--date-range', default='today',
               type=click.Choice(['today', 'yesterday', 'last-week', 'latest']),
-              help='Date range for episodes')
-@click.option('--output-format', 
-              type=click.Choice(['txt', 'markdown', 'json']),
-              help='Output format')
-@click.option('--whisper-model', 
-              type=click.Choice(['tiny', 'base', 'small', 'medium', 'large']),
-              help='Whisper model to use (tiny: fastest/lowest quality, large: slowest/highest quality)')
-@click.option('--max-episodes', type=int, help='Maximum number of episodes to process')
-@click.option('--delete-audio', is_flag=True, help='Delete audio files after successful transcription')
-@click.option('--use-openai-api', is_flag=True, help='Force use of OpenAI API instead of local Whisper')
+              help='Date range for filtering episodes')
+@click.option('--whisper-model', default='base', help='Whisper model to use')
+@click.option('--delete-audio', is_flag=True, help='Delete downloaded audio files after transcription')
+@click.option('--delete-original', is_flag=True, help='Delete original audio files after transcription')
+@click.option('--use-openai-api', is_flag=True, help='Use OpenAI API for transcription')
 @click.option('--openai-api-key', help='OpenAI API key (can also be set via OPENAI_API_KEY env var)')
-@click.option('--no-openai-fallback', is_flag=True, help='Disable OpenAI API fallback when local Whisper fails')
-@click.option('--debug', is_flag=True, help='Enable debug logging')
-def main(
-    rss_url: Optional[str],
-    local_dir: Optional[str],
-    download_dir: Optional[str],
-    output_dir: Optional[str],
-    date_range: Optional[str],
-    output_format: Optional[str],
-    whisper_model: Optional[str],
-    max_episodes: Optional[int],
-    delete_audio: bool,
-    use_openai_api: bool,
-    openai_api_key: Optional[str],
-    no_openai_fallback: bool,
-    debug: bool
-) -> None:
-    """Speech-to-text transcriber CLI."""
-    setup_logging(debug)
-    logger = logging.getLogger(__name__)
+@click.option('--no-openai-fallback', is_flag=True, help='Disable OpenAI API fallback if local Whisper fails')
+def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range, whisper_model, 
+         delete_audio, delete_original, use_openai_api, openai_api_key, no_openai_fallback):
+    """Speech-to-text transcriber CLI.
     
+    Supports three input modes:
+    1. RSS feeds (--rss-url)
+    2. Local audio files (--local-dir) 
+    3. X Spaces (--X-space)
+    """
     try:
-        # Validate input options - prioritize local-dir if specified
-        if local_dir:
-            # Local directory mode - ignore RSS URL even if specified
-            logger.info("Local directory mode selected, ignoring RSS URL if specified")
-        elif not rss_url:
-            # If no local-dir and no RSS URL, show error
-            logger.error("Must specify either --local-dir for local files or --rss-url for RSS feed.")
-            sys.exit(1)
+        # Validate input options - exactly one source must be specified
+        input_sources = [rss_url, local_dir, x_space]
+        specified_sources = [src for src in input_sources if src]
         
-        # Load configuration
+        if len(specified_sources) == 0:
+            raise click.ClickException("Error: Must specify one of --rss-url, --local-dir, or --X-space")
+        elif len(specified_sources) > 1:
+            raise click.ClickException("Error: Can only specify one input source at a time")
+
+        # Get configuration
         config = get_config(
             rss_url=rss_url,
+            local_dir=local_dir,
+            x_spaces_url=x_space,  # 修正
             download_dir=download_dir,
             output_dir=output_dir,
             date_range=date_range,
-            output_format=output_format,
             whisper_model=whisper_model,
-            max_episodes=max_episodes,
             delete_audio=delete_audio,
-            openai_api_key=openai_api_key,
+            delete_original=delete_original,
             use_openai_api=use_openai_api,
+            openai_api_key=openai_api_key,
             openai_fallback=not no_openai_fallback
         )
-        
-        logger.info(f"Starting transcription with config: {config}")
-        
+
+        logger.info(f"Configuration: {config}")
+
+        # Create output directory
+        Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Process based on input source
+        if local_dir:
+            episodes = process_local_directory(config)
+        elif rss_url:
+            episodes = process_rss_feed(config)
+        elif x_space:
+            episodes = process_x_spaces(config)
+
+        if not episodes:
+            logger.warning("No episodes found to process")
+            return
+
         # Initialize transcriber
         transcriber = AudioTranscriber(config)
-        
-        # Get episodes from either RSS or local directory
-        if local_dir:
-            episodes = process_local_directory(local_dir, config, logger)
-        else:
-            episodes = process_rss_feed(config, logger)
-        
-        # Limit number of episodes
-        if config.max_episodes:
-            episodes = episodes[:config.max_episodes]
-        
-        logger.info(f"Found {len(episodes)} episodes to process")
-        
+
         # Process each episode
         for episode in episodes:
-            logger.info(f"Processing episode: {episode.title}")
+            logger.info(f"Processing: {episode.title}")
             
-            # Check if transcript already exists
-            output_path = transcriber.get_output_path(episode)
-            if output_path.exists():
-                logger.info(f"Skip - File already exists: {output_path}")
-                continue
-            
-            # For local files, audio_path is already the local file path
-            if local_dir:
+            # Determine audio path
+            if config.local_dir or config.x_spaces_url:  # 修正
                 audio_path = Path(episode.audio_url)
-                if not audio_path.exists():
-                    logger.error(f"Local audio file not found: {audio_path}")
-                    continue
             else:
-                # Download audio file from RSS
-                downloader = AudioDownloader(config.download_dir)
-                audio_path = downloader.download(episode.audio_url, episode.title, episode.published_date)
+                # Download audio file
+                downloader = AudioDownloader(config)
+                audio_path = downloader.download(episode)
                 if not audio_path:
                     logger.error(f"Failed to download audio for: {episode.title}")
                     continue
-            
-            # Transcribe audio
+
+            # Transcribe
             transcript = transcriber.transcribe(audio_path)
-            if not transcript:
-                logger.error(f"Failed to transcribe audio for: {episode.title}")
-                continue
-            
-            # Save transcript
-            transcriber.save_transcript(transcript, episode)
-            logger.info(f"Transcript saved: {output_path}")
-            
-            # Delete audio file if requested (only for downloaded files, not local originals)
-            if config.delete_audio and not local_dir:
-                try:
-                    audio_path.unlink()
-                    logger.info(f"Deleted audio file: {audio_path.name}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete audio file {audio_path.name}: {e}")
-        
-        logger.info("Transcription completed successfully")
-        
+            if transcript:
+                # Save transcript
+                output_file = Path(config.output_dir) / f"{episode.published_date}_{episode.title.replace('/', '_')}.txt"
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(transcript)
+                logger.info(f"Transcript saved: {output_file}")
+
+                # Clean up audio file if requested (only for downloaded files)
+                if config.delete_audio and not config.local_dir:
+                    try:
+                        audio_path.unlink()
+                        logger.info(f"Deleted audio file: {audio_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete audio file {audio_path}: {e}")
+                
+                # Clean up original audio file if requested (for X Spaces)
+                if config.delete_original and config.x_spaces_url:  # 修正
+                    try:
+                        audio_path.unlink()
+                        logger.info(f"Deleted original audio file: {audio_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete original audio file {audio_path}: {e}")
+            else:
+                logger.error(f"Failed to transcribe: {episode.title}")
+
     except Exception as e:
         logger.error(f"Error: {e}")
-        if debug:
-            logger.exception("Full traceback:")
-        sys.exit(1)
+        raise click.ClickException(str(e))
 
+def process_x_spaces(config):
+    """Process X Spaces URL and return episodes."""
+    logger.info(f"Processing X Spaces: {config.x_spaces_url}")
+    
+    downloader = XSpacesDownloader(config)
+    episode = downloader.download_and_convert(config.x_spaces_url)
+    
+    if episode:
+        return [episode]
+    else:
+        logger.error("Failed to download from X Spaces")
+        return []
 
-def process_local_directory(local_dir: str, config: Config, logger) -> list:
-    """Process local directory to find audio files."""
-    logger.info(f"Processing local directory: {local_dir}")
-    
-    local_processor = LocalFileProcessor()
-    local_path = Path(local_dir)
-    
-    # Find audio files in the directory
-    episodes = local_processor.find_audio_files(local_path, config.date_range)
-    
-    return episodes
+def process_local_directory(config):
+    """Process local directory."""
+    logger.info(f"Processing local directory: {config.local_dir}")
+    return find_audio_files(Path(config.local_dir), config.date_range)
 
+def process_rss_feed(config):
+    """Process RSS feed."""
+    logger.info(f"Processing RSS feed: {config.rss_url}")
+    parser = RSSParser(config)
+    return parser.parse()
 
-def process_rss_feed(config: Config, logger) -> list:
-    """Process RSS feed to get episodes."""
-    logger.info(f"Fetching episodes from RSS: {config.rss_url}")
-    
-    # Initialize RSS components
-    rss_parser = RSSParser()
-    
-    # Fetch episodes from RSS
-    episodes = rss_parser.fetch_episodes(config.rss_url)
-    
-    # Filter episodes by date range
-    filtered_episodes = rss_parser.filter_by_date_range(episodes, config.date_range)
-    
-    return filtered_episodes
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

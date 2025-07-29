@@ -1,7 +1,20 @@
-# 音声ファイルの文字起こし
+# Speech-to-Text Transcriber
 
-カスタマイズされた音声ファイルの文字起こしCLIです。
-**ローカル版のWhisper**または**OpenAI API**を使用できるので、用途に応じて選択可能です。
+RSSフィード、ローカル音声ファイル、**X Spaces**から音声を取得し、OpenAIのWhisperモデル（ローカル実行）またはOpenAI APIを使用して自動で文字起こしを行うツールです。
+
+## 🎯 主な機能
+
+- **複数の音声ソース対応**
+  - 📡 **RSSフィード**: ポッドキャスト等のRSSから自動取得
+  - 📁 **ローカルファイル**: 指定ディレクトリの音声ファイルを処理
+  - 🎙️ **X Spaces**: スペースURL・ツイートURLから音声を自動取得・処理
+- **自動無音削除**: X Spacesの冒頭無音部分を自動検出・削除
+- **日付フィルタリング**: today, yesterday, last-week, latest で期間指定
+- **2つの文字起こしエンジン**
+  - 🏠 **ローカルWhisper**: オフライン処理、プライバシー重視
+  - ☁️ **OpenAI API**: 高精度、大容量ファイル対応（自動分割）
+- **フォールバック機能**: ローカル失敗時にAPI自動切替
+- **クロスプラットフォーム**: Windows, macOS, Linux対応
 
 ## 概要
 
@@ -28,8 +41,11 @@
 ## 技術スタック
 - Python
 - OpenAI Whisper
-- feedparser
-- click
+- feedparser (RSS解析)
+- click (CLI)
+- yt-dlp (X Spaces音声取得)
+- pydub (音声処理)
+- requests (HTTP通信)
 
 ## インストール・セットアップ
 
@@ -233,6 +249,26 @@ RSS フィードから音声ファイルを自動ダウンロードして処理�
 ./scripts/stt --rss-url "https://example.com/feed.rss" --date-range latest --max-episodes 1
 ```
 
+### 3. X Spacesモード
+
+X Spaces（旧Twitter Spaces）の音声を直接取得して文字起こしします。
+
+```bash
+# スペース直接URLから文字起こし
+./scripts/stt --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj"
+
+# ツイートURLからスペースを自動検出
+./scripts/stt --X-space "https://x.com/username/status/1234567890"
+
+# ダウンロード先を指定
+./scripts/stt --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj" --download-dir x-spaces-audio
+```
+
+#### X Spaces特有機能
+- **自動無音削除**: 冒頭の無音部分を自動検出・削除（-50dB閾値、0.1秒以上）
+- **URL形式**: スペース直接URL・ツイートURL両方対応
+- **音声形式**: MP3形式で高品質ダウンロード
+
 ### コマンドラインオプション
 
 ```bash
@@ -241,21 +277,20 @@ RSS フィードから音声ファイルを自動ダウンロードして処理�
 
 #### 利用可能なオプション
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--local-dir TEXT` | **ローカル音声ファイルディレクトリ（優先）** | なし |
-| `--rss-url TEXT` | RSS feed URL（local-dir未指定時に使用） | 環境変数から取得 |
-| `--download-dir TEXT` | 音声ファイル保存ディレクトリ | `./downloads` |
-| `--output-dir TEXT` | 文字起こしファイル保存ディレクトリ | `./transcripts` |
-| `--date-range [today\|yesterday\|last-week\|latest]` | 処理対象の日付範囲 | `today` |
-| `--output-format [txt\|markdown\|json]` | 出力フォーマット | `txt` |
-| `--whisper-model TEXT` | Whisperモデル | `base` |
-| `--max-episodes INTEGER` | 最大処理エピソード数 | `10` |
-| `--delete-audio` | 文字起こし成功後に音声ファイルを削除 | 無効 |
-| `--use-openai-api` | **OpenAI API強制使用** | 無効 |
-| `--openai-api-key TEXT` | **OpenAI APIキー** | 環境変数から取得 |
-| `--no-openai-fallback` | **OpenAI APIフォールバック無効化** | 無効 |
-| `--debug` | デバッグログを有効化 | 無効 |
+| オプション | 説明 | デフォルト値 |
+|-----------|------|-------------|
+| `--rss-url` | RSS feed URL | - |
+| `--local-dir` | ローカル音声ファイルのディレクトリ | - |
+| `--X-space` | X Spaces URL（スペースURL または ツイートURL） | - |
+| `--download-dir` | 音声ファイルのダウンロード先 | `downloads` |
+| `--output-dir` | 文字起こし結果の保存先 | `transcripts` |
+| `--date-range` | 処理する日付範囲 (`today`, `yesterday`, `last-week`, `latest`) | `today` |
+| `--whisper-model` | Whisperモデル (`tiny`, `base`, `small`, `medium`, `large`) | `base` |
+| `--delete-audio` | 処理後にダウンロードした音声ファイルを削除 | `False` |
+| `--delete-original` | 処理後に元の音声ファイルを削除（X Spaces用） | `False` |
+| `--use-openai-api` | OpenAI APIを優先使用 | `False` |
+| `--openai-api-key` | OpenAI APIキー（環境変数でも設定可能） | - |
+| `--no-openai-fallback` | ローカルWhisper失敗時のAPI切替を無効化 | `False` |
 
 **注意**: `--local-dir`が指定された場合、`--rss-url`は無視されます（ローカルファイル優先）。
 
@@ -365,6 +400,41 @@ scripts\stt.ps1 --rss-url "https://example.com/feed.rss" --date-range latest --m
 scripts\stt.ps1 --rss-url "https://example.com/feed.rss" --whisper-model medium
 ```
 
+### X Spaces実用例
+
+**Unix/Linux/macOS:**
+```bash
+# 基本的なX Spaces処理
+./scripts/stt --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj"
+
+# 高精度モデルでX Spaces処理
+./scripts/stt --X-space "https://x.com/username/status/1234567890" --whisper-model large
+
+# OpenAI APIでX Spaces処理（高精度・高速）
+./scripts/stt --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj" --use-openai-api
+
+# 処理後にダウンロードファイルを削除
+./scripts/stt --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj" --delete-original
+```
+
+**Windows (コマンドプロンプト):**
+```cmd
+REM 基本的なX Spaces処理
+scripts\stt.bat --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj"
+
+REM 高精度モデルでX Spaces処理
+scripts\stt.bat --X-space "https://x.com/username/status/1234567890" --whisper-model large
+```
+
+**Windows (PowerShell):**
+```powershell
+# 基本的なX Spaces処理
+scripts\stt.ps1 --X-space "https://x.com/i/spaces/1yNGaLgdDRqKj"
+
+# OpenAI APIでX Spaces処理
+scripts\stt.ps1 --X-space "https://x.com/username/status/1234567890" --use-openai-api
+```
+
 ## 出力ファイル
 
 文字起こしファイルは以下の形式で保存されます：
@@ -387,14 +457,14 @@ transcripts/
 
 ## 動作モードの選択
 
-### ファイルソース
-1. **`--local-dir`指定時**: ローカルファイルモード（RSS URLは無視）
-2. **`--local-dir`未指定時**: RSSフィードモード（RSS URL必須）
+### 📊 ファイル取得元
+1. **RSSフィード** (`--rss-url`): ポッドキャスト等のRSSから音声を自動取得
+2. **ローカルファイル** (`--local-dir`): 指定ディレクトリの音声ファイルを処理
+3. **X Spaces** (`--X-space`): スペースまたはツイートURLから音声を取得
 
-### 文字起こしエンジン
-1. **デフォルト**: ローカルWhisper → 失敗時OpenAI APIフォールバック
-2. **`--use-openai-api`指定時**: OpenAI API強制使用
-3. **`--no-openai-fallback`指定時**: ローカルWhisperのみ（フォールバック無効）
+### 🤖 文字起こしエンジン
+1. **ローカルWhisper** (デフォルト): ローカル環境でオフライン処理
+2. **OpenAI API** (`--use-openai-api`): クラウドで高精度処理
 
 ### 推奨設定
 - **コスト重視**: ローカルWhisperのみ（`--no-openai-fallback`）
@@ -451,19 +521,30 @@ transcripts/
    - 処理するエピソード数を減らす
    - OpenAI APIを使用（メモリ使用量が少ない）
 
-8. **OpenAI API関連のエラー**
-   - APIキーが正しく設定されているか確認
-   - OpenAI API利用制限に達していないか確認
-   - インターネット接続を確認
-   - `pip install openai`でライブラリがインストールされているか確認
+8. **X Spacesのダウンロードに失敗**
+   - `yt-dlp`が最新版か確認: `pip install --upgrade yt-dlp`
+   - URLが正しいか確認（スペースURL または ツイートURL）
+   - スペースが終了済みで録音が利用可能か確認
+   - ネットワーク接続とX/Twitterへのアクセスを確認
 
-9. **Windows環境での問題**
-   - **PowerShell実行ポリシーエラー**: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`を実行
-   - **Python not found**: Microsoft StoreまたはPython公式サイトからPythonをインストール
-   - **パスの区切り文字**: Windowsでは`\`、Unix系では`/`を使用
-   - **日本語ファイル名**: 文字化けが発生する場合は英数字のファイル名を使用
+9. **X Spacesの音声が無音すぎる**
+   - 自動無音削除が正常に動作しています（-50dB閾値）
+   - 音声レベルが極端に低い場合は手動で音量調整を検討
+   - より感度の高い無音検出が必要な場合はffmpegオプションのカスタマイズを検討
 
-10. **クロスプラットフォーム環境変数設定**
+10. **OpenAI API関連のエラー**
+    - APIキーが正しく設定されているか確認
+    - OpenAI API利用制限に達していないか確認
+    - インターネット接続を確認
+    - `pip install openai`でライブラリがインストールされているか確認
+
+11. **Windows環境での問題**
+    - **PowerShell実行ポリシーエラー**: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`を実行
+    - **Python not found**: Microsoft StoreまたはPython公式サイトからPythonをインストール
+    - **パスの区切り文字**: Windowsでは`\`、Unix系では`/`を使用
+    - **日本語ファイル名**: 文字化けが発生する場合は英数字のファイル名を使用
+
+12. **クロスプラットフォーム環境変数設定**
     ```bash
     # Unix/Linux/macOS (.bashrc, .zshrc等)
     export OPENAI_API_KEY=sk-your-key

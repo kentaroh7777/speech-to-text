@@ -1,214 +1,148 @@
-"""Local audio file processor for speech-to-text transcriber."""
+"""Local audio file processing for speech-to-text transcriber."""
 
-import logging
 import re
-from datetime import datetime, timedelta
+import logging
 from pathlib import Path
-from typing import List, Optional
-
+from datetime import datetime, timedelta
+from typing import List
 from .config import Episode
 
+logger = logging.getLogger(__name__)
 
-class LocalFileProcessor:
-    """Process local audio files for transcription."""
+def find_audio_files(directory: Path, date_range: str) -> List[Episode]:
+    """Find and filter audio files in the specified directory."""
+    logger.info(f"Scanning directory: {directory}")
+    logger.info(f"Date range filter: {date_range}")
     
-    # 対応する音声ファイル拡張子
-    AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac', '.wma'}
+    if not directory.exists():
+        logger.error(f"Directory does not exist: {directory}")
+        return []
     
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
+    # Supported audio extensions
+    audio_extensions = {'.mp3', '.wav', '.m4a', '.flac', '.ogg'}
     
-    def find_audio_files(self, directory: Path, date_range: str = "today") -> List[Episode]:
-        """Find audio files in directory and convert to Episode objects."""
-        if not directory.exists():
-            raise ValueError(f"Directory does not exist: {directory}")
-        
-        if not directory.is_dir():
-            raise ValueError(f"Path is not a directory: {directory}")
-        
-        self.logger.info(f"Scanning directory: {directory}")
-        
-        # Find all audio files
-        audio_files = []
-        for file_path in directory.rglob("*"):
-            if file_path.is_file() and file_path.suffix.lower() in self.AUDIO_EXTENSIONS:
-                audio_files.append(file_path)
-        
-        self.logger.info(f"Found {len(audio_files)} audio files")
-        
-        # Convert to Episode objects and track date sources
-        episodes = []
-        filename_date_count = 0
-        mtime_date_count = 0
-        
-        for file_path in audio_files:
-            episode = self._file_to_episode(file_path)
-            if episode:
-                episodes.append(episode)
-                # Count date sources for statistics
-                if hasattr(episode, 'date_source'):
-                    if episode.date_source == "filename":
-                        filename_date_count += 1
-                    elif episode.date_source == "file_mtime":
-                        mtime_date_count += 1
-        
-        # Log date source statistics
-        if filename_date_count > 0 and mtime_date_count > 0:
-            self.logger.info(f"Date sources: {filename_date_count} from filename, {mtime_date_count} from file modification time")
-        elif mtime_date_count > 0:
-            self.logger.info(f"All {mtime_date_count} files using file modification time (no dates in filenames)")
-        elif filename_date_count > 0:
-            self.logger.info(f"All {filename_date_count} files using filename dates")
-        
-        # Filter by date range
-        filtered_episodes = self._filter_by_date_range(episodes, date_range)
-        
-        self.logger.info(f"After date filtering: {len(filtered_episodes)} files")
-        
-        # Sort by date (newest first)
-        filtered_episodes.sort(key=lambda e: e.published_date, reverse=True)
-        
-        return filtered_episodes
+    # Find all audio files
+    episodes = []
+    for file_path in directory.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() in audio_extensions:
+            episode = _file_to_episode(file_path)
+            episodes.append(episode)
     
-    def _file_to_episode(self, file_path: Path) -> Optional[Episode]:
-        """Convert file path to Episode object."""
+    logger.info(f"Found {len(episodes)} audio files")
+    
+    # Filter by date range
+    filtered_episodes = _filter_by_date_range(episodes, date_range)
+    logger.info(f"After date filtering: {len(filtered_episodes)} files")
+    
+    # Log episode details for debugging
+    for episode in filtered_episodes:
+        logger.debug(f"Episode: {episode.title}, Date: {episode.published_date}, Source: {episode.date_source}")
+    
+    return filtered_episodes
+
+def _file_to_episode(file_path: Path) -> Episode:
+    """Convert a file path to an Episode object."""
+    # Try to extract date from filename
+    filename = file_path.stem
+    extracted_date = _extract_date_from_filename(filename)
+    
+    if extracted_date:
+        published_date = extracted_date
+        date_source = "filename"
+    else:
+        # Use file modification time if no date in filename
+        mtime = file_path.stat().st_mtime
+        published_date = datetime.fromtimestamp(mtime).strftime("%Y%m%d")
+        date_source = "mtime"
+    
+    # Get file modification time for latest sorting
+    st_mtime = file_path.stat().st_mtime
+    
+    episode = Episode(
+        title=filename,
+        audio_url=str(file_path.absolute()),
+        published_date=published_date,
+        duration=""
+    )
+    
+    # Add custom attributes for local processing
+    episode.date_source = date_source
+    episode.st_mtime = st_mtime
+    
+    return episode
+
+def _extract_date_from_filename(filename: str) -> str:
+    """Extract date from filename in YYYYMMDD format."""
+    # Pattern for YYYYMMDD (20240729)
+    pattern1 = r'(\d{4})(\d{2})(\d{2})'
+    match1 = re.search(pattern1, filename)
+    if match1:
+        return match1.group(1) + match1.group(2) + match1.group(3)
+    
+    # Pattern for YYYY-MM-DD or YYYY_MM_DD
+    pattern2 = r'(\d{4})[-_](\d{2})[-_](\d{2})'
+    match2 = re.search(pattern2, filename)
+    if match2:
+        return match2.group(1) + match2.group(2) + match2.group(3)
+    
+    return ""
+
+def _filter_by_date_range(episodes: List[Episode], date_range: str) -> List[Episode]:
+    """Filter episodes by date range."""
+    now = datetime.now()
+    
+    if date_range == "latest":
+        return _get_latest_episode(episodes)
+    
+    # Calculate date boundaries
+    if date_range == "today":
+        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = start_date + timedelta(days=1)
+    elif date_range == "yesterday":
+        start_date = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = start_date + timedelta(days=1)
+    elif date_range == "last-week":
+        start_date = (now - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = now
+    else:
+        logger.warning(f"Unknown date range: {date_range}, returning all episodes")
+        return episodes
+    
+    # Filter episodes
+    filtered = []
+    for episode in episodes:
         try:
-            # Extract date from filename
-            published_date = self._extract_date_from_filename(file_path.name)
-            date_source = "filename"
-            
-            if not published_date:
-                # If no date in filename, use file modification time
-                published_date = datetime.fromtimestamp(file_path.stat().st_mtime)
-                date_source = "file_mtime"
-                self.logger.debug(f"No date found in filename '{file_path.name}', using file modification time: {published_date}")
-            else:
-                self.logger.debug(f"Date extracted from filename '{file_path.name}': {published_date}")
-            
-            # Use filename (without extension) as title
-            title = file_path.stem
-            
-            # Create Episode object with local file path as audio_url
-            episode = Episode(
-                title=title,
-                audio_url=str(file_path.absolute()),
-                published_date=published_date,
-                duration=""  # Duration will be determined during transcription if needed
-            )
-            
-            # Add metadata about date source for debugging
-            episode.date_source = date_source
-            
-            return episode
-            
-        except Exception as e:
-            self.logger.warning(f"Failed to process file {file_path}: {e}")
-            return None
-    
-    def _extract_date_from_filename(self, filename: str) -> Optional[datetime]:
-        """Extract date from filename using various patterns."""
-        # Common date patterns in filenames
-        patterns = [
-            r'(\d{8})',  # YYYYMMDD
-            r'(\d{4}-\d{2}-\d{2})',  # YYYY-MM-DD
-            r'(\d{4}_\d{2}_\d{2})',  # YYYY_MM_DD
-            r'(\d{4}\d{2}\d{2})',  # YYYYMMDD (at start)
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, filename)
-            if match:
-                date_str = match.group(1)
-                try:
-                    if '-' in date_str:
-                        return datetime.strptime(date_str, '%Y-%m-%d')
-                    elif '_' in date_str:
-                        return datetime.strptime(date_str, '%Y_%m_%d')
-                    elif len(date_str) == 8:
-                        return datetime.strptime(date_str, '%Y%m%d')
-                except ValueError:
-                    continue
-        
-        return None
-    
-    def _filter_by_date_range(self, episodes: List[Episode], date_range: str) -> List[Episode]:
-        """Filter episodes by date range."""
-        if date_range == "latest":
-            # Return only the latest file
-            # If multiple files have the same date, prioritize by file modification time
-            if episodes:
-                latest = self._get_latest_episode(episodes)
-                return [latest]
-            return []
-        
-        now = datetime.now()
-        
-        if date_range == "today":
-            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = start_date + timedelta(days=1)
-        elif date_range == "yesterday":
-            start_date = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = start_date + timedelta(days=1)
-        elif date_range == "last-week":
-            start_date = (now - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = now
-        else:
-            # Unknown date range, return all
-            self.logger.debug(f"Unknown date range '{date_range}', returning all files")
-            return episodes
-        
-        self.logger.debug(f"Date range: {start_date} to {end_date}")
-        
-        filtered = []
-        for episode in episodes:
-            self.logger.debug(f"Episode '{episode.title}' date: {episode.published_date}")
-            if start_date <= episode.published_date < end_date:
+            episode_date = datetime.strptime(episode.published_date, "%Y%m%d")
+            logger.debug(f"Checking episode {episode.title}: {episode_date} in range {start_date} - {end_date}")
+            if start_date <= episode_date < end_date:
                 filtered.append(episode)
-                self.logger.debug(f"  -> Included")
+                logger.debug(f"  -> Included")
             else:
-                self.logger.debug(f"  -> Excluded (outside date range)")
-        
-        return filtered
+                logger.debug(f"  -> Excluded (outside date range)")
+        except ValueError:
+            logger.warning(f"Invalid date format for episode {episode.title}: {episode.published_date}")
     
-    def _get_latest_episode(self, episodes: List[Episode]) -> Episode:
-        """Get the latest episode, prioritizing file modification time for same-date files."""
-        from pathlib import Path
-        
-        # First, find the latest date
-        latest_date = max(episodes, key=lambda e: e.published_date.date()).published_date.date()
-        
-        # Filter episodes with the latest date
-        latest_date_episodes = [
-            e for e in episodes 
-            if e.published_date.date() == latest_date
-        ]
-        
-        self.logger.debug(f"Found {len(latest_date_episodes)} files with latest date {latest_date}")
-        
-        # If only one episode with latest date, return it
-        if len(latest_date_episodes) == 1:
-            return latest_date_episodes[0]
-        
-        # Multiple episodes with same date - prioritize by file modification time
-        self.logger.debug("Multiple files with same date, checking file modification times")
-        
-        def get_file_mtime(episode: Episode) -> float:
-            """Get file modification time."""
-            try:
-                file_path = Path(episode.audio_url)
-                if file_path.exists():
-                    mtime = file_path.stat().st_mtime
-                    self.logger.debug(f"  {episode.title}: mtime = {datetime.fromtimestamp(mtime)}")
-                    return mtime
-                else:
-                    self.logger.warning(f"File not found: {file_path}")
-                    return 0
-            except Exception as e:
-                self.logger.warning(f"Error getting mtime for {episode.title}: {e}")
-                return 0
-        
-        # Return episode with latest modification time
-        latest_episode = max(latest_date_episodes, key=get_file_mtime)
-        self.logger.debug(f"Selected latest file: {latest_episode.title}")
-        
-        return latest_episode 
+    return filtered
+
+def _get_latest_episode(episodes: List[Episode]) -> List[Episode]:
+    """Get the latest episode(s). If multiple episodes have the same date, return the one with the most recent mtime."""
+    if not episodes:
+        return []
+    
+    # Sort by published_date first, then by st_mtime for tie-breaking
+    sorted_episodes = sorted(episodes, key=lambda e: (e.published_date, e.st_mtime), reverse=True)
+    
+    latest_date = sorted_episodes[0].published_date
+    logger.debug(f"Latest date found: {latest_date}")
+    
+    # Get all episodes with the latest date
+    latest_episodes = [ep for ep in sorted_episodes if ep.published_date == latest_date]
+    
+    if len(latest_episodes) > 1:
+        # Multiple files with same date - return the one with most recent mtime
+        latest_episode = max(latest_episodes, key=lambda e: e.st_mtime)
+        logger.debug(f"Multiple episodes on {latest_date}, selected by mtime: {latest_episode.title}")
+        return [latest_episode]
+    else:
+        logger.debug(f"Single latest episode: {latest_episodes[0].title}")
+        return latest_episodes 

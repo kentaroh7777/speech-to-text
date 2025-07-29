@@ -17,6 +17,8 @@ except ImportError:
 class Config:
     """Configuration for the transcriber."""
     rss_url: str = ""  # Make RSS URL optional for local mode
+    local_dir: str = ""
+    x_spaces_url: str = ""  # 修正: twitter_spaces_url → x_spaces_url
     download_dir: str = "./downloads"
     output_dir: str = "./transcripts"
     date_range: str = "today"
@@ -26,6 +28,7 @@ class Config:
     chunk_size_mb: int = 50
     overlap_seconds: int = 15
     delete_audio: bool = False
+    delete_original: bool = False
     # OpenAI API settings
     openai_api_key: str = ""
     use_openai_api: bool = False
@@ -94,6 +97,8 @@ class Episode:
 
 def get_config(
     rss_url: Optional[str] = None,
+    local_dir: Optional[str] = None,
+    x_spaces_url: Optional[str] = None,  # 修正: twitter_spaces_url → x_spaces_url
     download_dir: Optional[str] = None,
     output_dir: Optional[str] = None,
     date_range: Optional[str] = None,
@@ -103,9 +108,11 @@ def get_config(
     chunk_size_mb: Optional[int] = None,
     overlap_seconds: Optional[int] = None,
     delete_audio: Optional[bool] = None,
+    delete_original: Optional[bool] = None,
     openai_api_key: Optional[str] = None,
     use_openai_api: Optional[bool] = None,
-    openai_fallback: Optional[bool] = None
+    openai_fallback: Optional[bool] = None,
+    no_openai_fallback: Optional[bool] = None
 ) -> Config:
     """Get configuration with priority: CLI args > env vars > defaults."""
     
@@ -117,6 +124,8 @@ def get_config(
     
     return Config(
         rss_url=get_value(rss_url, "STT_RSS_URL", ""),  # Default to empty string
+        local_dir=local_dir or "",
+        x_spaces_url=x_spaces_url or "",  # 修正: twitter_spaces_url → x_spaces_url
         download_dir=get_value(download_dir, "STT_DOWNLOAD_DIR", "./downloads"),
         output_dir=get_value(output_dir, "STT_OUTPUT_DIR", "./transcripts"),
         date_range=get_value(date_range, "STT_DATE_RANGE", "today"),
@@ -126,8 +135,9 @@ def get_config(
         chunk_size_mb=int(get_value(chunk_size_mb, "STT_CHUNK_SIZE_MB", 50)),
         overlap_seconds=int(get_value(overlap_seconds, "STT_OVERLAP_SECONDS", 15)),
         delete_audio=bool(get_value(delete_audio, "STT_DELETE_AUDIO", False)),
+        delete_original=delete_original or False,
         # OpenAI API settings
         openai_api_key=get_value(openai_api_key, "OPENAI_API_KEY", ""),
         use_openai_api=bool(get_value(use_openai_api, "STT_USE_OPENAI_API", False)),
-        openai_fallback=bool(get_value(openai_fallback, "STT_OPENAI_FALLBACK", True))
+        openai_fallback=not no_openai_fallback if no_openai_fallback is not None else bool(get_value(openai_fallback, "STT_OPENAI_FALLBACK", True))
     )
