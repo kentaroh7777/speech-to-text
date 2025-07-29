@@ -16,7 +16,7 @@ except ImportError:
 @dataclass
 class Config:
     """Configuration for the transcriber."""
-    rss_url: str
+    rss_url: str = ""  # Make RSS URL optional for local mode
     download_dir: str = "./downloads"
     output_dir: str = "./transcripts"
     date_range: str = "today"
@@ -26,11 +26,28 @@ class Config:
     chunk_size_mb: int = 50
     overlap_seconds: int = 15
     delete_audio: bool = False
+    # OpenAI API settings
+    openai_api_key: str = ""
+    use_openai_api: bool = False
+    openai_fallback: bool = True  # Fallback to OpenAI API if local Whisper fails
+    
+    def __str__(self):
+        """String representation with masked API key for security."""
+        # Create a copy of the config with masked API key
+        masked_config = self.__dict__.copy()
+        if masked_config.get('openai_api_key'):
+            key = masked_config['openai_api_key']
+            if len(key) > 8:
+                masked_config['openai_api_key'] = key[:4] + '***' + key[-4:]
+            else:
+                masked_config['openai_api_key'] = '***'
+        
+        return f"Config({', '.join(f'{k}={repr(v)}' for k, v in masked_config.items())})"
     
     def __post_init__(self):
         """Validate configuration after initialization."""
-        if not self.rss_url:
-            raise ValueError("RSS URL is required")
+        # RSS URL is no longer required for local mode
+        # Validation will be done in CLI
         
         # Convert relative paths to absolute paths from original working directory
         self.download_dir = self._resolve_path(self.download_dir)
@@ -59,9 +76,9 @@ class Config:
 
 @dataclass
 class Episode:
-    """Episode information from RSS feed."""
+    """Episode information from RSS feed or local file."""
     title: str
-    audio_url: str
+    audio_url: str  # For local files, this will be the absolute file path
     published_date: datetime
     duration: str = ""
     
@@ -85,7 +102,10 @@ def get_config(
     max_episodes: Optional[int] = None,
     chunk_size_mb: Optional[int] = None,
     overlap_seconds: Optional[int] = None,
-    delete_audio: Optional[bool] = None
+    delete_audio: Optional[bool] = None,
+    openai_api_key: Optional[str] = None,
+    use_openai_api: Optional[bool] = None,
+    openai_fallback: Optional[bool] = None
 ) -> Config:
     """Get configuration with priority: CLI args > env vars > defaults."""
     
@@ -96,7 +116,7 @@ def get_config(
         return os.getenv(env_key, default_value)
     
     return Config(
-        rss_url=get_value(rss_url, "STT_RSS_URL", ""),
+        rss_url=get_value(rss_url, "STT_RSS_URL", ""),  # Default to empty string
         download_dir=get_value(download_dir, "STT_DOWNLOAD_DIR", "./downloads"),
         output_dir=get_value(output_dir, "STT_OUTPUT_DIR", "./transcripts"),
         date_range=get_value(date_range, "STT_DATE_RANGE", "today"),
@@ -105,5 +125,9 @@ def get_config(
         max_episodes=int(get_value(max_episodes, "STT_MAX_EPISODES", 10)),
         chunk_size_mb=int(get_value(chunk_size_mb, "STT_CHUNK_SIZE_MB", 50)),
         overlap_seconds=int(get_value(overlap_seconds, "STT_OVERLAP_SECONDS", 15)),
-        delete_audio=bool(get_value(delete_audio, "STT_DELETE_AUDIO", False))
+        delete_audio=bool(get_value(delete_audio, "STT_DELETE_AUDIO", False)),
+        # OpenAI API settings
+        openai_api_key=get_value(openai_api_key, "OPENAI_API_KEY", ""),
+        use_openai_api=bool(get_value(use_openai_api, "STT_USE_OPENAI_API", False)),
+        openai_fallback=bool(get_value(openai_fallback, "STT_OPENAI_FALLBACK", True))
     )
