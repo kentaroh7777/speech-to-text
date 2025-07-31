@@ -111,6 +111,25 @@ def _extract_date_from_filename(filename: str) -> str:
     
     return ""
 
+def _parse_episode_date(date_string: str) -> datetime:
+    """Parse episode date string in various formats."""
+    # Try different date formats
+    formats = [
+        "%Y-%m-%d %H:%M:%S",  # 2025-07-29 14:30:00
+        "%Y-%m-%d",           # 2025-07-29
+        "%Y%m%d",             # 20250729
+        "%Y-%m-%d %H:%M",     # 2025-07-29 14:30
+    ]
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_string, fmt)
+        except ValueError:
+            continue
+    
+    # If all formats fail, raise an error
+    raise ValueError(f"Unable to parse date: {date_string}")
+
 def _filter_by_date_range(episodes: List[Episode], date_range: str) -> List[Episode]:
     """Filter episodes by date range."""
     now = datetime.now()
@@ -136,15 +155,16 @@ def _filter_by_date_range(episodes: List[Episode], date_range: str) -> List[Epis
     filtered = []
     for episode in episodes:
         try:
-            episode_date = datetime.strptime(episode.published_date, "%Y%m%d")
+            # Parse different date formats
+            episode_date = _parse_episode_date(episode.published_date)
             logger.debug(f"Checking episode {episode.title}: {episode_date} in range {start_date} - {end_date}")
             if start_date <= episode_date < end_date:
                 filtered.append(episode)
                 logger.debug(f"  -> Included")
             else:
                 logger.debug(f"  -> Excluded (outside date range)")
-        except ValueError:
-            logger.warning(f"Invalid date format for episode {episode.title}: {episode.published_date}")
+        except ValueError as e:
+            logger.warning(f"Invalid date format for episode {episode.title}: {episode.published_date} - {e}")
     
     return filtered
 
@@ -153,8 +173,16 @@ def _get_latest_episode(episodes: List[Episode]) -> List[Episode]:
     if not episodes:
         return []
     
-    # Sort by published_date first, then by st_mtime for tie-breaking
-    sorted_episodes = sorted(episodes, key=lambda e: (e.published_date, e.st_mtime), reverse=True)
+    # Sort by parsed date first, then by st_mtime for tie-breaking
+    def sort_key(episode):
+        try:
+            parsed_date = _parse_episode_date(episode.published_date)
+            return (parsed_date, episode.st_mtime)
+        except ValueError:
+            # If date parsing fails, use file modification time
+            return (datetime.fromtimestamp(episode.st_mtime), episode.st_mtime)
+    
+    sorted_episodes = sorted(episodes, key=sort_key, reverse=True)
     
     latest_date = sorted_episodes[0].published_date
     logger.debug(f"Latest date found: {latest_date}")

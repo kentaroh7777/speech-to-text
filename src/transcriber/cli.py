@@ -52,19 +52,13 @@ def save_transcript(result: TranscriptResult, config, episode):
     """Save transcript based on configuration."""
     sanitized_title = episode.title.replace('/', '_').replace('?', '_').replace(':', '_')
     
-    # Handle published_date (could be datetime or string)
-    if hasattr(episode.published_date, 'strftime'):
-        date_str = episode.published_date.strftime('%Y%m%d')
-    else:
-        date_str = str(episode.published_date)
-    
     if config.output_format == 'json':
-        output_file = Path(config.output_dir) / f"{date_str}_{sanitized_title}.json"
+        output_file = Path(config.output_dir) / f"{sanitized_title}.json"
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(result.to_json())
         logger.info(f"Transcript saved (JSON): {output_file}")
     else:
-        output_file = Path(config.output_dir) / f"{date_str}_{sanitized_title}.txt"
+        output_file = Path(config.output_dir) / f"{sanitized_title}.txt"
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(result.transcript)
         logger.info(f"Transcript saved (TXT): {output_file}")
@@ -75,9 +69,9 @@ def save_transcript(result: TranscriptResult, config, episode):
 @click.option('--X-space', help='X Spaces URL (space URL or tweet URL)')  # 修正
 @click.option('--download-dir', default='downloads', help='Directory to save audio files')
 @click.option('--output-dir', default='transcripts', help='Directory to save transcripts')
-@click.option('--output-format', type=click.Choice(['txt', 'json']), default='txt',
-              help='Output format: txt or json (default: txt)')
-@click.option('--date-range', default='today',
+@click.option('--output-format', type=click.Choice(['txt', 'json']), default='json',
+              help='Output format: txt or json (default: json)')
+@click.option('--date-range', default='latest',
               type=click.Choice(['today', 'yesterday', 'last-week', 'latest']),
               help='Date range for filtering episodes')
 @click.option('--whisper-model', default='base',

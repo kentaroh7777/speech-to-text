@@ -197,8 +197,8 @@ STT_DOWNLOAD_DIR=./downloads
 STT_OUTPUT_DIR=./transcripts
 
 # 処理オプション
-STT_DATE_RANGE=today  # today, yesterday, last-week, latest
-STT_OUTPUT_FORMAT=txt  # txt, markdown, json
+STT_DATE_RANGE=latest  # today, yesterday, last-week, latest
+STT_OUTPUT_FORMAT=json  # txt, json
 STT_WHISPER_MODEL=base  # tiny, base, small, medium, large
 STT_MAX_EPISODES=10
 
