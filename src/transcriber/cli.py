@@ -52,13 +52,27 @@ def save_transcript(result: TranscriptResult, config, episode):
     """Save transcript based on configuration."""
     sanitized_title = episode.title.replace('/', '_').replace('?', '_').replace(':', '_')
     
+    # Check if title already starts with date (YYYYMMDD format)
+    import re
+    if re.match(r'^\d{8}_', sanitized_title):
+        # Title already has date prefix, use as-is
+        filename_base = sanitized_title
+    else:
+        # Add date prefix
+        # Handle published_date (could be datetime or string)
+        if hasattr(episode.published_date, 'strftime'):
+            date_str = episode.published_date.strftime('%Y%m%d')
+        else:
+            date_str = str(episode.published_date)
+        filename_base = f"{date_str}_{sanitized_title}"
+    
     if config.output_format == 'json':
-        output_file = Path(config.output_dir) / f"{sanitized_title}.json"
+        output_file = Path(config.output_dir) / f"{filename_base}.json"
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(result.to_json())
         logger.info(f"Transcript saved (JSON): {output_file}")
     else:
-        output_file = Path(config.output_dir) / f"{sanitized_title}.txt"
+        output_file = Path(config.output_dir) / f"{filename_base}.txt"
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(result.transcript)
         logger.info(f"Transcript saved (TXT): {output_file}")
