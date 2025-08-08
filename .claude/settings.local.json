@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__playwright-community__playwright_navigate",
+      "mcp__playwright-community__playwright_screenshot",
+      "mcp__playwright-community__playwright_get_visible_text",
+      "mcp__playwright-community__playwright_evaluate",
+      "mcp__playwright-community__playwright_close"
+    ],
+    "deny": []
+  }
+}

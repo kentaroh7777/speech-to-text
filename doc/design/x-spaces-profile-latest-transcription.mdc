@@ -1,0 +1,128 @@
+# Xアカウント最新スペース自動検出・文字起こし 設計書
+
+## 1. 概要・目的
+- Xの特定アカウント（プロフィールページ）を最新順に走査し、録音公開済みの最新スペースを1件特定。
+- 既存の `XSpacesDownloader` → `AudioTranscriber` に接続して文字起こしと保存を行う。
+- 実装は行わない（IFと設計のみ）。
+
+## 2. 要件
+- Must
+  - 入力は1つだけで十分。CLI/環境変数いずれかで単一指定。
+  - 形式は「ユーザー名」または「プロフィールURL」を同一項目に指定可能。
+  - CLIで指定された値は環境変数より優先。
+  - 最新の「録音公開済み」スペースを1件だけ採用。
+  - 特定したURLを既存 `XSpacesDownloader` に渡してダウンロード→ `AudioTranscriber` で文字起こし→既存保存仕様で出力。
+  - 既存 `--X-space <url>` が指定された場合は本機能より優先する。
+- Should
+  - 検索件数と期間の制御が可能（デフォルトは limit=50、lookback=24h）。
+  - RT/返信の除外はオプション化。録音必須は常時固定（変更不可）。
+- Won't（今回対象外）
+  - ライブ配信のリアルタイム録音取得。
+  - ライブ配信のリアルタイム録音取得。
+
+## 3. アーキテクチャ/フロー
+- 追加コンポーネント: `XSpacesApiFinder`（X API経由で最新スペースURL検出）
+- 既存再利用: `XSpacesDownloader`、`AudioTranscriber`、`cli.py` のフロー/保存仕様
+
+フロー（高レベル）
+1) CLI/環境変数から入力統合
+2) `--X-space` があれば既存フローで直接処理
+3) `--x-profile`（または `STT_X_PROFILE`）があれば `XSpacesApiFinder` でURL取得
+4) 取得URLを `XSpacesDownloader` に渡して音声取得
+5) `AudioTranscriber` で文字起こし→既存保存仕様で出力
+
+## 4. コンポーネント仕様（新規）
+### 4.1 `XSpacesApiFinder`（`src/transcriber/x_spaces_finder.py`）
+- 責務: 指定プロフィール（ユーザー名またはURL）から、X API v2 を用いて最新の「録音公開済み」スペースURLを1件返す。
+- 処理手順（API利用）:
+  1. プロフィール入力正規化: URLの場合はユーザー名を抽出。それ以外は文字列をユーザー名とみなす。
+  2. `GET /2/users/by/username/:username` で `user_id` を取得。
+  3. `GET /2/spaces/by/creator_ids?user_ids={user_id}&state=all&max_results={limit}&space.fields=state,created_at,scheduled_start,started_at,ended_at,title,participant_count,lang,host_ids` を呼び出し、対象ユーザーのSpaces一覧を取得。
+  4. 絞り込み: `state=ended` を基本とし、録音公開済み（リプレイ可）を満たすものに限定（本仕様は固定。利用権限により可視なフィールドが異なる場合は downloader 側の実ダウンロード可否で最終判断）。
+  5. 並び替え: `ended_at`（なければ `created_at`）の降順で最新1件を選定。
+  6. 返却URLを `https://x.com/i/spaces/{space_id}` 形式で構築。
+  7. 日付の扱い: APIの日時（`ended_at`/`created_at`）はUTCで提供される。内部ではUTCのまま保持し、利用時（保存/ファイル名生成/メタ出力）にJSTへ変換する。
+- 認証・接続: Bearer Token（App-only）想定。タイムアウト/リトライを内部制御。
+- 例外:
+  - 401/403: 資格情報不足 → 明示ログ。
+  - 429: レート制限 → ウェイト案内。
+  - 対象スペース無し: INFOログで理由（期間/件数/録音未公開）を明示し None。
+
+インタフェース（設計のみ）
+```python
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class XSpaceMeta:
+    url: str
+    title: str | None
+    published_at: str | None  # ISO8601 または "%Y-%m-%d %H:%M:%S"
+    tweet_id: str | None
+
+class XSpacesApiFinder:
+    def __init__(
+        self,
+        profile: str,                # ユーザー名 or プロフィールURL（単一）
+        search_limit: int,
+        lookback_hours: int,
+        bearer_token: str,
+        request_timeout_ms: int,
+    ) -> None: ...
+
+    def find_latest(self) -> Optional[XSpaceMeta]: ...
+```
+
+## 5. CLI/Config 設計
+- 追加CLIオプション（相互排他ルールを明確化）
+  - `--x-profile <username|profile_url>`（単一指定）
+  - 優先順位: `--X-space` > `--x-profile` > `--rss-url`/`--local-dir`
+- Config 追加項目（単一で十分）
+  - `x_profile: str`（空文字で未指定）
+  - `x_search_limit: int = 50`（既定値）
+  - `x_lookback_hours: int = 24`
+  - `x_api_bearer: str`（必須：X API Bearer Token）
+  - `x_api_timeout_ms: int = 15000`
+- 環境変数（単一）
+  - `STT_X_PROFILE`（ユーザー名またはプロフィールURL）
+  - 他: `STT_X_SEARCH_LIMIT=50`, `STT_X_LOOKBACK_HOURS=24`, `STT_X_API_BEARER=<token>`, `STT_X_API_TIMEOUT_MS=15000`
+- 優先順位
+  - CLI引数 > 環境変数 > 既定値
+
+## 6. 既存フローへの組み込み
+- `cli.py`
+  - 既存 `--X-space` 指定時は従来動作。
+  - `--x-profile` 指定（または `STT_X_PROFILE` 設定）かつ `x_spaces_url` が空の場合：
+    - `XSpacesApiFinder.find_latest()` を実行→URL取得→既存 `process_x_spaces(config)` にURLを注入して処理。
+- `config.py`
+  - `Config` に上記項目を追加（文字列/数値/真偽）。Bearer Tokenはマスク表示。
+
+## 7. 例外処理・ログ
+- Finder(API): 検索条件（limit/期間/録音必須）、APIレスポンス要約、ヒット数、採用URL、除外理由をINFOで出力。401/403/429を明示。
+- ヒットなし: 正常終了扱い（No episodes found）。
+- Downloader/Transcriber: 既存のエラーポリシー踏襲。
+
+## 7.1 タイムゾーン変換ポリシー（UTC→JST）
+- 入力（API）: `ended_at`/`created_at` はUTC。
+- 保持: Finder/Config/Episode内部ではUTCで保持。
+- 利用時: 
+  - `save_transcript`/ファイル名生成/JSONメタの `date` はJST（UTC+9, DSTなし）に変換して出力。
+  - 変換は `zoneinfo("Asia/Tokyo")` を想定（Python 3.9+）。
+  - 例: `2025-08-08T22:30:00Z` → `2025-08-09 07:30:00`（JST）
+
+-## 8. テスト戦略（要点）
+- 単体: APIクライアントのパラメータ組み立て、`state=ended` フィルタ、並び替え（`ended_at`/`created_at`）。
+- 統合: Finder(API)→Downloader をモックAPIで接続。資格情報未設定・429再試行の分岐確認。
+- 手動E2E: 実アカウントで最新録音スペース1件が選定され、既存保存仕様で出力されること。
+- タイムゾーン: UTC入力をJSTで保存することを検証（境界: 日付跨ぎ, 深夜帯）。
+
+## 9. タスク分割（簡略）
+- 1) Config/CLI 追加（`--x-profile`, `STT_X_PROFILE`, `STT_X_API_BEARER`）と優先順位実装。
+- 2) `XSpacesApiFinder` 実装と `cli.py` 統合（API呼び出し→URL取得→既存フロー）。
+
+## 10. 検証基準
+- CLI優先: `--x-profile` 指定時に `STT_X_PROFILE` より優先される。
+- デフォルト: 検索既定が limit=50 / lookback=24h / 録音必須 / RT除外で動作。
+- 優先順位: `--X-space` > `--x-profile` > `--rss-url`/`--local-dir` が守られる。
+- 成果: 最新録音スペース1件が選定され、既存出力仕様（TXT/JSON）で保存される。
+
