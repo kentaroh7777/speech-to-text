@@ -35,11 +35,30 @@ class Config:
     openai_fallback: bool = True
     author: str = ""
     contact: str = ""
+    # X profile driven search (API)
+    x_profile: str = ""
+    x_search_limit: int = 50
+    x_lookback_hours: int = 24
+    x_api_bearer: str = ""
+    x_api_timeout_ms: int = 15000
+    x_api_base: str = "https://api.twitter.com/2"
 
     def __str__(self) -> str:
         """String representation with masked API key."""
         masked_key = self.openai_api_key[:7] + '*' * (len(self.openai_api_key) - 10) + self.openai_api_key[-3:] if len(self.openai_api_key) > 10 else '***'
-        return f"Config(rss_url='{self.rss_url}', local_dir='{self.local_dir}', x_spaces_url='{self.x_spaces_url}', download_dir='{self.download_dir}', output_dir='{self.output_dir}', date_range='{self.date_range}', output_format='{self.output_format}', whisper_model='{self.whisper_model}', max_episodes={self.max_episodes}, chunk_size_mb={self.chunk_size_mb}, overlap_seconds={self.overlap_seconds}, delete_audio={self.delete_audio}, delete_original={self.delete_original}, openai_api_key='{masked_key}', use_openai_api={self.use_openai_api}, openai_fallback={self.openai_fallback}, author='{self.author}', contact='{self.contact}')"
+        masked_x_bearer = self.x_api_bearer[:7] + '*' * (len(self.x_api_bearer) - 10) + self.x_api_bearer[-3:] if len(self.x_api_bearer) > 10 else '***'
+        return (
+            "Config("
+            f"rss_url='{self.rss_url}', local_dir='{self.local_dir}', x_spaces_url='{self.x_spaces_url}', "
+            f"download_dir='{self.download_dir}', output_dir='{self.output_dir}', date_range='{self.date_range}', "
+            f"output_format='{self.output_format}', whisper_model='{self.whisper_model}', max_episodes={self.max_episodes}, "
+            f"chunk_size_mb={self.chunk_size_mb}, overlap_seconds={self.overlap_seconds}, delete_audio={self.delete_audio}, "
+            f"delete_original={self.delete_original}, openai_api_key='{masked_key}', use_openai_api={self.use_openai_api}, "
+            f"openai_fallback={self.openai_fallback}, author='{self.author}', contact='{self.contact}', "
+            f"x_profile='{self.x_profile}', x_search_limit={self.x_search_limit}, x_lookback_hours={self.x_lookback_hours}, "
+            f"x_api_bearer='{masked_x_bearer}', x_api_timeout_ms={self.x_api_timeout_ms}, x_api_base='{self.x_api_base}'"
+            ")"
+        )
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -122,6 +141,7 @@ def get_config(**kwargs) -> Config:
         rss_url=kwargs.get('rss_url') or os.getenv('STT_RSS_URL', ''),
         local_dir=kwargs.get('local_dir') or os.getenv('STT_LOCAL_DIR', ''),
         x_spaces_url=kwargs.get('x_spaces_url') or os.getenv('STT_X_SPACES_URL', ''),
+        x_profile=kwargs.get('x_profile') or os.getenv('STT_X_PROFILE', ''),
         download_dir=kwargs.get('download_dir') or os.getenv('STT_DOWNLOAD_DIR', './downloads'),
         output_dir=kwargs.get('output_dir') or os.getenv('STT_OUTPUT_DIR', './transcripts'),
         date_range=kwargs.get('date_range') or os.getenv('STT_DATE_RANGE', 'latest'),
@@ -136,5 +156,10 @@ def get_config(**kwargs) -> Config:
         use_openai_api=kwargs.get('use_openai_api') or os.getenv('STT_USE_OPENAI_API', '').lower() == 'true',
         openai_fallback=kwargs.get('openai_fallback', True) if 'openai_fallback' in kwargs else os.getenv('STT_OPENAI_FALLBACK', 'true').lower() == 'true',
         author=kwargs.get('author') or os.getenv('STT_AUTHOR', ''),
-        contact=kwargs.get('contact') or os.getenv('STT_CONTACT', '')
+        contact=kwargs.get('contact') or os.getenv('STT_CONTACT', ''),
+        x_search_limit=int(kwargs.get('x_search_limit') or os.getenv('STT_X_SEARCH_LIMIT', '50')),
+        x_lookback_hours=int(kwargs.get('x_lookback_hours') or os.getenv('STT_X_LOOKBACK_HOURS', '24')),
+        x_api_bearer=kwargs.get('x_api_bearer') or os.getenv('STT_X_API_BEARER', ''),
+        x_api_timeout_ms=int(kwargs.get('x_api_timeout_ms') or os.getenv('STT_X_API_TIMEOUT_MS', '15000')),
+        x_api_base=kwargs.get('x_api_base') or os.getenv('STT_X_API_BASE', 'https://api.twitter.com/2'),
     )

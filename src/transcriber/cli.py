@@ -5,13 +5,14 @@ import click
 import logging
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from .config import get_config, TranscriptResult
 from .rss_parser import RSSParser
 from .downloader import AudioDownloader
 from .local_processor import find_audio_files
 from .x_spaces_downloader import XSpacesDownloader  # 修正
 from .transcriber import AudioTranscriber  # 正しいクラス名に修正
+from .x_spaces_finder import XSpacesApiFinder
 
 # Try to import pydub for duration extraction
 try:
@@ -54,16 +55,27 @@ def save_transcript(result: TranscriptResult, config, episode):
     
     # Check if title already starts with date (YYYYMMDD format)
     import re
-    if re.match(r'^\d{8}_', sanitized_title):
+    # Accept YYYYMMDD_ or YYYYMMDD_HHMMSS_
+    if re.match(r'^\d{8}(?:_\d{6})?_', sanitized_title):
         # Title already has date prefix, use as-is
         filename_base = sanitized_title
     else:
         # Add date prefix
         # Handle published_date (could be datetime or string)
+        date_str = ''
         if hasattr(episode.published_date, 'strftime'):
-            date_str = episode.published_date.strftime('%Y%m%d')
+            # Use YYYYMMDD_HHMMSS
+            date_str = episode.published_date.strftime('%Y%m%d_%H%M%S')
         else:
-            date_str = str(episode.published_date)
+            # Try parse string like 'YYYY-MM-DD HH:MM:SS' and convert
+            try:
+                dt = datetime.strptime(str(episode.published_date), '%Y-%m-%d %H:%M:%S')
+                date_str = dt.strftime('%Y%m%d_%H%M%S')
+            except Exception:
+                # Fallback: remove spaces and colons conservatively
+                tmp = str(episode.published_date).strip()
+                tmp = tmp.replace(' ', '_').replace(':', '')
+                date_str = tmp
         filename_base = f"{date_str}_{sanitized_title}"
     
     if config.output_format == 'json':
@@ -77,10 +89,11 @@ def save_transcript(result: TranscriptResult, config, episode):
             f.write(result.transcript)
         logger.info(f"Transcript saved (TXT): {output_file}")
 
-@click.command()
-@click.option('--rss-url', help='RSS feed URL')
-@click.option('--local-dir', help='Local directory containing audio files to transcribe')
-@click.option('--X-space', help='X Spaces URL (space URL or tweet URL)')  # 修正
+@click.command(context_settings=dict(show_default=True))
+@click.option('--X-space', help='X Spaces URL (space URL or tweet URL) / 1st priority')  # 修正
+@click.option('--X-profile', type=str, default='', help='X profile username or profile URL where space post to be found. Requires STT_X_API_BEARER env var. / 2nd priority')
+@click.option('--rss-url', help='RSS feed URL / 3rd priority')
+@click.option('--local-dir', help='Local directory containing audio files to transcribe / 4th priority')
 @click.option('--download-dir', default='downloads', help='Directory to save audio files')
 @click.option('--output-dir', default='transcripts', help='Directory to save transcripts')
 @click.option('--output-format', type=click.Choice(['txt', 'json']), default='json',
@@ -110,7 +123,7 @@ def save_transcript(result: TranscriptResult, config, episode):
 def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
          whisper_model, max_episodes, chunk_size_mb, overlap_seconds,
          delete_audio, delete_original, use_openai_api, openai_api_key,
-         openai_fallback, output_format, author, contact):
+         openai_fallback, output_format, author, contact, x_profile):
     """Speech-to-text transcriber CLI.
     
     Supports three input modes:
@@ -120,7 +133,7 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
     """
     try:
         # Validate CLI input options first (before considering environment variables)
-        cli_input_sources = [rss_url, local_dir, x_space]
+        cli_input_sources = [rss_url, local_dir, x_space, x_profile]
         specified_cli_sources = [src for src in cli_input_sources if src]
         
         if len(specified_cli_sources) > 1:
@@ -131,6 +144,7 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
             rss_url=rss_url,
             local_dir=local_dir,
             x_spaces_url=x_space,
+            x_profile=x_profile,
             download_dir=download_dir,
             output_dir=output_dir,
             date_range=date_range,
@@ -149,24 +163,27 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
         )
 
         # Final validation: ensure at least one source is available (CLI or env vars)
-        final_input_sources = [config.rss_url, config.local_dir, config.x_spaces_url]
+        final_input_sources = [config.rss_url, config.local_dir, config.x_spaces_url, config.x_profile]
         specified_final_sources = [src for src in final_input_sources if src]
         
         if len(specified_final_sources) == 0:
-            raise click.ClickException("Error: Must specify one of --rss-url, --local-dir, or --X-space (or set environment variables STT_RSS_URL, STT_LOCAL_DIR, or STT_X_SPACES_URL)")
+            raise click.ClickException("Error: Must specify one of --rss-url, --local-dir, --X-space, or --x-profile (or set environment variables STT_RSS_URL, STT_LOCAL_DIR, STT_X_SPACES_URL, or STT_X_PROFILE)")
 
         logger.debug(f"Configuration: {config}")
 
         # Create output directory
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
-        # Process based on input source
-        if config.local_dir:
-            episodes = process_local_directory(config)
+        # Process based on input source with priority:
+        # --X-space > --X-profile > others (rss/local)
+        if config.x_spaces_url:
+            episodes = process_x_spaces(config)
+        elif config.x_profile:
+            episodes = process_x_profile(config)
         elif config.rss_url:
             episodes = process_rss_feed(config)
-        elif config.x_spaces_url:
-            episodes = process_x_spaces(config)
+        elif config.local_dir:
+            episodes = process_local_directory(config)
 
         if not episodes:
             logger.warning("No episodes found to process")
@@ -267,6 +284,52 @@ def process_x_spaces(config):
         return [episode]
     else:
         logger.error("Failed to download from X Spaces")
+        return []
+
+def process_x_profile(config):
+    """Resolve latest X Space by profile via API and return episodes."""
+    logger.info(f"Resolving latest X Space by profile: {config.x_profile}")
+
+    try:
+        finder = XSpacesApiFinder(
+            profile=config.x_profile,
+            search_limit=config.x_search_limit,
+            lookback_hours=config.x_lookback_hours,
+            bearer_token=config.x_api_bearer,
+            request_timeout_ms=config.x_api_timeout_ms,
+        )
+        # pass API base URL to finder (for domain flexibility)
+        setattr(finder, "api_base", getattr(config, "x_api_base", "https://api.twitter.com/2"))
+        meta = finder.find_latest()
+        if not meta or not meta.url:
+            logger.warning("No X Spaces found for the given profile/constraints")
+            return []
+
+        # Use found URL as the source for downloader
+        config.x_spaces_url = meta.url
+        logger.info(f"Found X Space URL: {config.x_spaces_url}")
+
+        downloader = XSpacesDownloader(config)
+        episode = downloader.download_and_convert(config.x_spaces_url)
+        if not episode:
+            logger.error("Failed to download from X Spaces (after resolving by profile)")
+            return []
+
+        # If API provided UTC timestamp, convert to JST for output usage
+        if meta.published_at:
+            try:
+                iso = meta.published_at.replace('Z', '+00:00')
+                dt_utc = datetime.fromisoformat(iso)
+                if not dt_utc.tzinfo:
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                jst = dt_utc.astimezone(timezone(timedelta(hours=9)))
+                episode.published_date = jst.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception as e:
+                logger.warning(f"Could not convert published_at to JST: {e}")
+
+        return [episode]
+    except Exception as e:
+        logger.error(f"X profile resolution failed: {e}")
         return []
 
 def process_local_directory(config):
