@@ -19,7 +19,7 @@ def find_audio_files(directory: Path, date_range: str) -> List[Episode]:
         return []
     
     # Supported audio extensions
-    audio_extensions = {'.mp3', '.wav', '.m4a', '.flac', '.ogg'}
+    audio_extensions = {'.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac'}
     
     # Find all audio files
     episodes = []

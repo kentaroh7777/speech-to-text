@@ -33,15 +33,13 @@ class XSpacesDownloader:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_template = str(self.download_dir / f"x_spaces_{timestamp}_%(title)s.%(ext)s")
             
-            # Run yt-dlp to download audio
+            # Step 1: Download best audio without postprocessing to avoid HLS live quirks
             cmd = [
                 "python3", "-m", "yt_dlp",
                 "-o", output_template,
-                "--extract-audio",
-                "--audio-format", "mp3",
-                "--audio-quality", "0",  # Best quality
-                "--postprocessor-args", "ffmpeg:-af silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB",  # 冒頭無音削除
-                url
+                "-f", "bestaudio",
+                "--no-part",  # write final file directly
+                url,
             ]
             
             result = subprocess.run(
@@ -51,16 +49,41 @@ class XSpacesDownloader:
                 check=True
             )
             
-            # Find the downloaded file
-            downloaded_files = list(self.download_dir.glob(f"x_spaces_{timestamp}_*.mp3"))
-            if not downloaded_files:
+            # Find the downloaded file (any audio extension)
+            candidates = sorted(self.download_dir.glob(f"x_spaces_{timestamp}_*"))
+            candidates = [p for p in candidates if p.is_file() and not p.suffix.endswith('.part')]
+            if not candidates:
                 logger.error("No audio file was downloaded")
                 return None
-            
-            downloaded_file = downloaded_files[0]
-            logger.info(f"Successfully downloaded: {downloaded_file}")
-            
-            return self._create_episode_from_file(downloaded_file, url)
+
+            source_file = candidates[0]
+            logger.info(f"Successfully downloaded: {source_file}")
+
+            # Step 2: Post-process locally with ffmpeg (silence removal + mp3 high quality)
+            output_mp3 = source_file.with_suffix('.mp3')
+            ffmpeg_cmd = [
+                "ffmpeg", "-hide_banner", "-y",
+                "-i", str(source_file),
+                "-af", "silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB",
+                "-c:a", "libmp3lame", "-q:a", "0",
+                str(output_mp3)
+            ]
+            try:
+                pp = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+                if pp.returncode != 0:
+                    logger.error("ffmpeg postprocess failed: %s", pp.stderr)
+                    return None
+            except Exception as e:
+                logger.error("ffmpeg execution failed: %s", e)
+                return None
+
+            if not output_mp3.exists() or output_mp3.stat().st_size == 0:
+                logger.error("Postprocessed audio file not created")
+                return None
+
+            # Return episode and attach original source path for optional cleanup
+            episode = self._create_episode_from_file(output_mp3, url, original_path=source_file)
+            return episode
             
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to download X Spaces audio: {e}")
@@ -81,7 +104,7 @@ class XSpacesDownloader:
         
         return any(re.match(pattern, url) for pattern in x_spaces_patterns)
 
-    def _create_episode_from_file(self, file_path: Path, original_url: str) -> Episode:
+    def _create_episode_from_file(self, file_path: Path, original_url: str, original_path: Optional[Path] = None) -> Episode:
         """Create Episode object from downloaded file."""
         # Extract title from filename (remove extension)
         title = file_path.stem
@@ -89,9 +112,15 @@ class XSpacesDownloader:
         # Use current datetime as published date (TODO: Extract actual space time from API)
         published_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        return Episode(
+        ep = Episode(
             title=title,
             audio_url=str(file_path.absolute()),
             published_date=published_date,
             duration=""
-        ) 
+        )
+        if original_path is not None:
+            try:
+                setattr(ep, "original_audio_path", str(original_path.absolute()))
+            except Exception:
+                pass
+        return ep

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# speech-to-text を pipx 経由で「グローバル実行できる stt」として同期するスクリプト
+# 目的:
+# - pipx の venv が Python 3.14 等に寄って不安定化するのを避ける
+# - 常に指定の Python（stt-env）で pipx install --force を実行する
+
+PIPX_DEFAULT_PYTHON_FALLBACK="/Users/taroken/.venvs/stt-env/bin/python"
+PROJECT_DIR="/Users/taroken/src/git/speech-to-text"
+PACKAGE_NAME="speech-to-text-transcriber"
+NUMPY_PIN="numpy<2"
+
+PIPX_PYTHON="${PIPX_DEFAULT_PYTHON:-$PIPX_DEFAULT_PYTHON_FALLBACK}"
+
+if ! command -v pipx >/dev/null 2>&1; then
+  echo "エラー: pipx が見つかりません。先に 'brew install pipx' してください。" >&2
+  exit 1
+fi
+
+if [[ ! -x "$PIPX_PYTHON" ]]; then
+  echo "エラー: Python が見つかりません: $PIPX_PYTHON" >&2
+  echo "ヒント: stt-env を作成するか、PIPX_DEFAULT_PYTHON を正しいパスに設定してください。" >&2
+  exit 1
+fi
+
+if [[ ! -d "$PROJECT_DIR" ]]; then
+  echo "エラー: プロジェクトディレクトリが見つかりません: $PROJECT_DIR" >&2
+  exit 1
+fi
+
+echo "pipx 同期開始: stt"
+echo "  - project: $PROJECT_DIR"
+echo "  - python : $PIPX_PYTHON"
+
+pipx install --force --python "$PIPX_PYTHON" "$PROJECT_DIR"
+
+echo "pipx venv の NumPy を固定: $NUMPY_PIN"
+pipx runpip "$PACKAGE_NAME" install --force-reinstall "$NUMPY_PIN"
+
+echo "確認: stt --help"
+stt --help >/dev/null
+
+echo "完了: stt を更新しました"
+

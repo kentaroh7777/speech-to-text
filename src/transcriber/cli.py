@@ -91,7 +91,7 @@ def save_transcript(result: TranscriptResult, config, episode):
 
 @click.command(context_settings=dict(show_default=True))
 @click.option('--X-space', help='X Spaces URL (space URL or tweet URL) / 1st priority')  # 修正
-@click.option('--X-profile', type=str, default='', help='X profile username or profile URL where space post to be found. Requires STT_X_API_BEARER env var. / 2nd priority')
+@click.option('--X-account', type=str, default='', help='X account username or profile URL where recorded space post to be found. Requires STT_X_API_BEARER env var. / 2nd priority')
 @click.option('--rss-url', help='RSS feed URL / 3rd priority')
 @click.option('--local-dir', help='Local directory containing audio files to transcribe / 4th priority')
 @click.option('--download-dir', default='downloads', help='Directory to save audio files')
@@ -123,17 +123,17 @@ def save_transcript(result: TranscriptResult, config, episode):
 def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
          whisper_model, max_episodes, chunk_size_mb, overlap_seconds,
          delete_audio, delete_original, use_openai_api, openai_api_key,
-         openai_fallback, output_format, author, contact, x_profile):
+          openai_fallback, output_format, author, contact, x_account):
     """Speech-to-text transcriber CLI.
     
     Supports three input modes:
     1. RSS feeds (--rss-url or STT_RSS_URL env var)
     2. Local audio files (--local-dir or STT_LOCAL_DIR env var) 
-    3. X Spaces (--X-space or STT_X_SPACES_URL env var)
+    3. X Spaces (--X-space or STT_X_SPACES_URL env var). If --X-account is specified, it will call X API multiple times with delays between calls to respect rate limits.
     """
     try:
         # Validate CLI input options first (before considering environment variables)
-        cli_input_sources = [rss_url, local_dir, x_space, x_profile]
+        cli_input_sources = [rss_url, local_dir, x_space, x_account]
         specified_cli_sources = [src for src in cli_input_sources if src]
         
         if len(specified_cli_sources) > 1:
@@ -144,7 +144,7 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
             rss_url=rss_url,
             local_dir=local_dir,
             x_spaces_url=x_space,
-            x_profile=x_profile,
+            x_profile=x_account,
             download_dir=download_dir,
             output_dir=output_dir,
             date_range=date_range,
@@ -167,7 +167,7 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
         specified_final_sources = [src for src in final_input_sources if src]
         
         if len(specified_final_sources) == 0:
-            raise click.ClickException("Error: Must specify one of --rss-url, --local-dir, --X-space, or --x-profile (or set environment variables STT_RSS_URL, STT_LOCAL_DIR, STT_X_SPACES_URL, or STT_X_PROFILE)")
+            raise click.ClickException("Error: Must specify one of --rss-url, --local-dir, --X-space, or --X-account (or set environment variables STT_RSS_URL, STT_LOCAL_DIR, STT_X_SPACES_URL, or STT_X_PROFILE)")
 
         logger.debug(f"Configuration: {config}")
 
@@ -175,11 +175,11 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
         # Process based on input source with priority:
-        # --X-space > --X-profile > others (rss/local)
+        # --X-space > --X-account > others (rss/local)
         if config.x_spaces_url:
             episodes = process_x_spaces(config)
         elif config.x_profile:
-            episodes = process_x_profile(config)
+            episodes = process_x_account_with_date_range(config)
         elif config.rss_url:
             episodes = process_rss_feed(config)
         elif config.local_dir:
@@ -251,21 +251,41 @@ def main(rss_url, local_dir, x_space, download_dir, output_dir, date_range,
                 # Save transcript in requested format
                 save_transcript(result, config, episode)
 
-                # Clean up audio file if requested (only for downloaded files)
-                if config.delete_audio and not config.local_dir:
-                    try:
-                        audio_path.unlink()
-                        logger.info(f"Deleted audio file: {audio_path}")
-                    except Exception as e:
-                        logger.warning(f"Could not delete audio file {audio_path}: {e}")
-                
-                # Clean up original audio file if requested (for X Spaces)
-                if config.delete_original and config.x_spaces_url:
-                    try:
-                        audio_path.unlink()
-                        logger.info(f"Deleted original audio file: {audio_path}")
-                    except Exception as e:
-                        logger.warning(f"Could not delete original audio file {audio_path}: {e}")
+                # Clean up files if requested (only for downloaded files)
+                if not config.local_dir:
+                    # When --delete-audio is specified, delete both processed and original
+                    if config.delete_audio:
+                        # delete processed file
+                        try:
+                            if audio_path.exists():
+                                audio_path.unlink()
+                                logger.info(f"Deleted audio file: {audio_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete audio file {audio_path}: {e}")
+
+                        # delete original source if present (X Spaces flow)
+                        original_attr = getattr(episode, 'original_audio_path', None)
+                        if original_attr:
+                            try:
+                                original_path = Path(original_attr)
+                                # avoid double-delete if same as processed
+                                if original_path.resolve() != audio_path.resolve() and original_path.exists():
+                                    original_path.unlink()
+                                    logger.info(f"Deleted original audio file: {original_path}")
+                            except Exception as e:
+                                logger.warning(f"Could not delete original audio file {original_attr}: {e}")
+
+                    # Backward-compat: if --delete-original set, also delete original source
+                    elif config.delete_original and config.x_spaces_url:
+                        original_attr = getattr(episode, 'original_audio_path', None)
+                        if original_attr:
+                            try:
+                                original_path = Path(original_attr)
+                                if original_path.exists():
+                                    original_path.unlink()
+                                    logger.info(f"Deleted original audio file: {original_path}")
+                            except Exception as e:
+                                logger.warning(f"Could not delete original audio file {original_attr}: {e}")
             else:
                 logger.error(f"Failed to transcribe: {episode.title}")
 
@@ -300,6 +320,7 @@ def process_x_profile(config):
         )
         # pass API base URL to finder (for domain flexibility)
         setattr(finder, "api_base", getattr(config, "x_api_base", "https://api.twitter.com/2"))
+        setattr(finder, "api_call_delay_ms", getattr(config, "x_api_call_delay_ms", 60000))
         meta = finder.find_latest()
         if not meta or not meta.url:
             logger.warning("No X Spaces found for the given profile/constraints")
@@ -330,6 +351,104 @@ def process_x_profile(config):
         return [episode]
     except Exception as e:
         logger.error(f"X profile resolution failed: {e}")
+        return []
+
+def process_x_account_with_date_range(config):
+    """Resolve recorded spaces by account, honoring --date-range.
+    - date_range == 'today'/'yesterday'/'last-week': フィルタリング
+    - date_range == 'latest': 直近1件
+    """
+    logger.info(f"Resolving X recorded Spaces by account with date-range: {config.x_profile}, range={config.date_range}")
+
+    try:
+        finder = XSpacesApiFinder(
+            profile=config.x_profile,
+            search_limit=config.x_search_limit,
+            lookback_hours=config.x_lookback_hours,
+            bearer_token=config.x_api_bearer,
+            request_timeout_ms=config.x_api_timeout_ms,
+        )
+        setattr(finder, "api_base", getattr(config, "x_api_base", "https://api.twitter.com/2"))
+        setattr(finder, "api_call_delay_ms", getattr(config, "x_api_call_delay_ms", 60000))
+
+        # If latest, reuse single resolution
+        if config.date_range == 'latest':
+            meta = finder.find_latest()
+            if not meta or not meta.url:
+                logger.warning("No recorded X Spaces found for the given account/constraints")
+                return []
+            config.x_spaces_url = meta.url
+            downloader = XSpacesDownloader(config)
+            episode = downloader.download_and_convert(config.x_spaces_url)
+            if not episode:
+                logger.error("Failed to download from X Spaces (after resolving by account)")
+                return []
+            if meta.published_at:
+                try:
+                    iso = meta.published_at.replace('Z', '+00:00')
+                    dt_utc = datetime.fromisoformat(iso)
+                    if not dt_utc.tzinfo:
+                        dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                    jst = dt_utc.astimezone(timezone(timedelta(hours=9)))
+                    episode.published_date = jst.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception as e:
+                    logger.warning(f"Could not convert published_at to JST: {e}")
+            return [episode]
+
+        # Otherwise, collect multiple ended spaces then filter by date_range
+        metas = finder.find_ended_spaces()
+        if not metas:
+            logger.warning("No recorded X Spaces found for the given account/constraints")
+            return []
+
+        # Build date window in JST
+        now_jst = datetime.now(timezone(timedelta(hours=9)))
+        def in_range(published_iso: str) -> bool:
+            try:
+                dt_utc = datetime.fromisoformat(published_iso.replace('Z', '+00:00'))
+                if not dt_utc.tzinfo:
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                dt_jst = dt_utc.astimezone(timezone(timedelta(hours=9)))
+            except Exception:
+                return False
+            if config.date_range == 'today':
+                return dt_jst.date() == now_jst.date()
+            if config.date_range == 'yesterday':
+                return dt_jst.date() == (now_jst - timedelta(days=1)).date()
+            if config.date_range == 'last-week':
+                start = (now_jst - timedelta(days=7)).date()
+                return start <= dt_jst.date() <= now_jst.date()
+            return True
+
+        metas = [m for m in metas if m.published_at and in_range(m.published_at)]
+        if not metas:
+            logger.warning("No recorded X Spaces matched the specified date-range")
+            return []
+
+        # Download all matched spaces
+        episodes = []
+        for meta in metas:
+            config.x_spaces_url = meta.url
+            downloader = XSpacesDownloader(config)
+            episode = downloader.download_and_convert(config.x_spaces_url)
+            if not episode:
+                logger.error(f"Failed to download from X Spaces: {meta.url}")
+                continue
+            # set JST time
+            try:
+                iso = meta.published_at.replace('Z', '+00:00')
+                dt_utc = datetime.fromisoformat(iso)
+                if not dt_utc.tzinfo:
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                jst = dt_utc.astimezone(timezone(timedelta(hours=9)))
+                episode.published_date = jst.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception as e:
+                logger.warning(f"Could not convert published_at to JST: {e}")
+            episodes.append(episode)
+
+        return episodes
+    except Exception as e:
+        logger.error(f"X account resolution failed: {e}")
         return []
 
 def process_local_directory(config):

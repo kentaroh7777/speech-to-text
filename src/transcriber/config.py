@@ -42,6 +42,7 @@ class Config:
     x_api_bearer: str = ""
     x_api_timeout_ms: int = 15000
     x_api_base: str = "https://api.twitter.com/2"
+    x_api_call_delay_ms: int = 60000
 
     def __str__(self) -> str:
         """String representation with masked API key."""
@@ -56,7 +57,8 @@ class Config:
             f"delete_original={self.delete_original}, openai_api_key='{masked_key}', use_openai_api={self.use_openai_api}, "
             f"openai_fallback={self.openai_fallback}, author='{self.author}', contact='{self.contact}', "
             f"x_profile='{self.x_profile}', x_search_limit={self.x_search_limit}, x_lookback_hours={self.x_lookback_hours}, "
-            f"x_api_bearer='{masked_x_bearer}', x_api_timeout_ms={self.x_api_timeout_ms}, x_api_base='{self.x_api_base}'"
+            f"x_api_bearer='{masked_x_bearer}', x_api_timeout_ms={self.x_api_timeout_ms}, x_api_base='{self.x_api_base}', "
+            f"x_api_call_delay_ms={self.x_api_call_delay_ms}"
             ")"
         )
     
@@ -136,12 +138,33 @@ class TranscriptResult:
 def get_config(**kwargs) -> Config:
     """Get configuration from environment variables and kwargs."""
     load_dotenv()
-    
+
+    # 入力ソース（rss/local/X）の指定は、環境変数よりも CLI オプションを優先する。
+    # さらに、CLI でどれか 1 つでも入力ソースが指定された場合は、
+    # 他の入力ソースを環境変数から補完して「別ソースが勝手に有効になる」ことを防ぐ。
+    cli_specified_any_source = any([
+        kwargs.get('rss_url'),
+        kwargs.get('local_dir'),
+        kwargs.get('x_spaces_url'),
+        kwargs.get('x_profile'),
+    ])
+
+    if cli_specified_any_source:
+        rss_url = kwargs.get('rss_url') or ''
+        local_dir = kwargs.get('local_dir') or ''
+        x_spaces_url = kwargs.get('x_spaces_url') or ''
+        x_profile = kwargs.get('x_profile') or ''
+    else:
+        rss_url = os.getenv('STT_RSS_URL', '')
+        local_dir = os.getenv('STT_LOCAL_DIR', '')
+        x_spaces_url = os.getenv('STT_X_SPACES_URL', '')
+        x_profile = os.getenv('STT_X_PROFILE', '')
+
     return Config(
-        rss_url=kwargs.get('rss_url') or os.getenv('STT_RSS_URL', ''),
-        local_dir=kwargs.get('local_dir') or os.getenv('STT_LOCAL_DIR', ''),
-        x_spaces_url=kwargs.get('x_spaces_url') or os.getenv('STT_X_SPACES_URL', ''),
-        x_profile=kwargs.get('x_profile') or os.getenv('STT_X_PROFILE', ''),
+        rss_url=rss_url,
+        local_dir=local_dir,
+        x_spaces_url=x_spaces_url,
+        x_profile=x_profile,
         download_dir=kwargs.get('download_dir') or os.getenv('STT_DOWNLOAD_DIR', './downloads'),
         output_dir=kwargs.get('output_dir') or os.getenv('STT_OUTPUT_DIR', './transcripts'),
         date_range=kwargs.get('date_range') or os.getenv('STT_DATE_RANGE', 'latest'),
@@ -162,4 +185,5 @@ def get_config(**kwargs) -> Config:
         x_api_bearer=kwargs.get('x_api_bearer') or os.getenv('STT_X_API_BEARER', ''),
         x_api_timeout_ms=int(kwargs.get('x_api_timeout_ms') or os.getenv('STT_X_API_TIMEOUT_MS', '15000')),
         x_api_base=kwargs.get('x_api_base') or os.getenv('STT_X_API_BASE', 'https://api.twitter.com/2'),
+        x_api_call_delay_ms=int(kwargs.get('x_api_call_delay_ms') or os.getenv('STT_X_API_CALL_DELAY_MS', '60000')),
     )

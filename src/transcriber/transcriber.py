@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import ssl
+import subprocess
 import tempfile
 import urllib.request
 import warnings
@@ -229,16 +230,75 @@ class AudioTranscriber:
     def _transcribe_with_openai(self, audio_path: Path) -> str:
         """Transcribe audio file using OpenAI API."""
         try:
-            with open(audio_path, "rb") as audio_file:
-                response = self.openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="text"
-                )
-            return response.strip()
+            # OpenAI API は対応フォーマットが限定されているため、必要に応じて ffmpeg で変換してから送る。
+            # 対応フォーマット: ['flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm']
+            supported_exts = {
+                "flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"
+            }
+            ext = audio_path.suffix.lower().lstrip(".")
+
+            if ext in supported_exts:
+                upload_path = audio_path
+                with open(upload_path, "rb") as audio_file:
+                    response = self.openai_client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        response_format="text"
+                    )
+                return response.strip()
+
+            # 変換が必要な場合は一時ファイルへ m4a に変換する
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                upload_path = temp_path / f"{audio_path.stem}.m4a"
+                self._convert_audio_for_openai(input_path=audio_path, output_path=upload_path)
+                with open(upload_path, "rb") as audio_file:
+                    response = self.openai_client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        response_format="text"
+                    )
+                return response.strip()
         except Exception as e:
             self.logger.error(f"OpenAI API transcription failed: {e}")
             raise
+
+    def _convert_audio_for_openai(self, input_path: Path, output_path: Path) -> None:
+        """OpenAI API 対応フォーマットへ変換する（主に .aac 等の非対応入力を救済する）。"""
+        try:
+            # ffmpeg が必要。動画要素は除外し、音声のみを m4a(aac) に変換する。
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(input_path),
+                "-vn",
+                "-acodec",
+                "aac",
+                "-b:a",
+                "128k",
+                str(output_path),
+            ]
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.logger.info(f"OpenAI API 用に音声を変換しました: {input_path.name} -> {output_path.name}")
+            # ffmpeg の標準出力/標準エラーは通常不要だが、デバッグ時に有用なため debug レベルで残す
+            if result.stdout:
+                self.logger.debug(f"[DEBUG] ffmpeg stdout: {result.stdout}")
+            if result.stderr:
+                self.logger.debug(f"[DEBUG] ffmpeg stderr: {result.stderr}")
+        except FileNotFoundError as e:
+            # ffmpeg が見つからない
+            raise RuntimeError("ffmpeg が見つかりません。`brew install ffmpeg` などでインストールしてください。") from e
+        except subprocess.CalledProcessError as e:
+            stderr = (e.stderr or "").strip()
+            # 長すぎる場合に備えて末尾だけ出す
+            tail = stderr[-2000:] if len(stderr) > 2000 else stderr
+            raise RuntimeError(f"ffmpeg で音声変換に失敗しました: {tail}") from e
     
     def _transcribe_large_file_with_openai(self, audio_path: Path) -> str:
         """Transcribe large audio file by splitting into chunks for OpenAI API."""
